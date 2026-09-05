@@ -137,7 +137,12 @@ juce_add_plugin("${PROJECT_NAME}"
     # Note: this must have at least one upper-case character
     PLUGIN_CODE GALL
     LV2URI "https://github.com/Celine-audio/GALLERY"
+    LV2_PLUGIN_CLASS FilterPlugin
+
     FORMATS "${FORMATS}"
+
+    VST3_CATEGORIES Fx Filter
+    AAX_CATEGORY Harmonic
 
     # Only meaningful for the standalone build; a plug-in gets its input from the
     # host, which has already asked on its own behalf. The text is what macOS shows
@@ -155,9 +160,13 @@ juce_add_plugin("${PROJECT_NAME}"
 # Without running into ODR violations
 add_library(SharedCode INTERFACE)
 
+# audio-effect has to stay first -- clap-juce-extensions reads the head of this list to
+# decide what kind of plugin it is building. What follows is the shelf a host files it
+# on, and then the layouts it actually handles: both, since it takes mono in and mono
+# out as readily as stereo.
 clap_juce_extensions_plugin(TARGET "${PROJECT_NAME}"
     CLAP_ID "${BUNDLE_ID}"
-    CLAP_FEATURES audio-effect)
+    CLAP_FEATURES audio-effect filter mono stereo)
 
 # Enable fast math, C++20 and a few other target defaults
 include(SharedCodeDefaults)
