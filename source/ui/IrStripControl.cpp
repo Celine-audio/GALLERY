@@ -56,10 +56,9 @@ namespace
 }
 
 //==============================================================================
-IrStripControl::IrStripControl (PluginProcessor& processor, int slotIndex, juce::Colour identity)
+IrStripControl::IrStripControl (PluginProcessor& processor, int slotIndex)
     : processorRef (processor),
       slot (slotIndex),
-      colour (identity),
       alignKnob (processor.getAPVTS(), ParamID::align[(size_t) slotIndex], "Align"),
       panKnob (processor.getAPVTS(), ParamID::pan[(size_t) slotIndex], "Pan")
 {
@@ -68,7 +67,7 @@ IrStripControl::IrStripControl (PluginProcessor& processor, int slotIndex, juce:
     buildKnobs();
     buildCutControls();
 
-    refresh();
+    applyColours();
 }
 
 void IrStripControl::buildStateButtons()
@@ -91,7 +90,6 @@ void IrStripControl::buildFileControls()
 {
     // The same slate every other button in the window wears: Load is the ordinary
     // action here, and colouring it apart from the rest said it was the exceptional one.
-    loadButton.setColour (juce::TextButton::buttonColourId, Theme::surface());
     loadButton.setTooltip ("Load a cabinet response. Files can be drag-and-dropped.");
     loadButton.onClick = [this] { chooseFile(); };
     addAndMakeVisible (loadButton);
@@ -148,7 +146,6 @@ void IrStripControl::buildKnobs()
 
     for (auto* knob : { &alignKnob, &panKnob })
     {
-        knob->getSlider().setColour (juce::Slider::rotarySliderFillColourId, colour);
         addAndMakeVisible (knob);
     }
 }
@@ -158,7 +155,7 @@ void IrStripControl::buildCutControls()
     auto& state = processorRef.getAPVTS();
     const auto index = (size_t) slot;
 
-    cutRange.setAccentColour (colour);
+    cutRange.setAccentColour (colour());
     cutRange.onDragged = [this] (auto handle, auto hz) { setCut (handle, hz); };
     cutRange.onGesture = [this] (auto handle, auto starting) { beginCutGesture (handle, starting); };
     addAndMakeVisible (cutRange);
@@ -183,6 +180,24 @@ void IrStripControl::buildCutControls()
 }
 
 IrStripControl::~IrStripControl() = default;
+
+void IrStripControl::applyColours()
+{
+    // The same slate every other button in the window wears: Load is the ordinary
+    // action here, and colouring it apart from the rest said it was the exceptional one.
+    loadButton.setColour (juce::TextButton::buttonColourId, Theme::surface());
+
+    for (auto* knob : { &alignKnob, &panKnob })
+        knob->getSlider().setColour (juce::Slider::rotarySliderFillColourId, colour());
+
+    cutRange.setAccentColour (colour());
+
+    // The rest is refresh()'s: the filename's ink, and the resolution button's three
+    // looks. That one only redraws when the tier moves, so forgetting which tier is
+    // showing is what makes it take the new colours.
+    shownResolution = -1;
+    refresh();
+}
 
 //==============================================================================
 void IrStripControl::refresh()
@@ -411,12 +426,12 @@ void IrStripControl::paint (juce::Graphics& g)
     // has to be able to answer without counting across.
     const auto rule = bounds.reduced (Theme::cornerRadius, 0.0f).withHeight (3.0f).translated (0.0f, 1.0f);
 
-    g.setColour (colour);
+    g.setColour (colour());
     g.fillRoundedRectangle (rule, 1.5f);
 
     if (fileHovering)
     {
-        g.setColour (colour.withAlpha (0.6f));
+        g.setColour (colour().withAlpha (0.6f));
         g.drawRoundedRectangle (bounds.reduced (1.0f), Theme::cornerRadius, 2.0f);
     }
 }

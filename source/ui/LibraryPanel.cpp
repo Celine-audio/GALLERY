@@ -72,15 +72,11 @@ LibraryPanel::LibraryPanel()
     // labels off the platform sans. A face chosen on purpose has to say so.
     title.getProperties().set (keepFontProperty, true);
     title.setFont (Fonts::logo (juce::jmin (24.0f, (float) headerHeight * 0.36f)));
-    title.setColour (juce::Label::textColourId, Theme::text());
     title.setJustificationType (juce::Justification::centredLeft);
     title.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (title);
 
     search.setFont (Fonts::light (11.5f));
-    search.setColour (juce::TextEditor::backgroundColourId, Theme::background());
-    search.setColour (juce::TextEditor::textColourId, Theme::text());
-    search.setColour (juce::TextEditor::highlightColourId, Theme::accent().withAlpha (0.4f));
 
     // No rule around it, like every other field in the window: it is told from the band
     // it sits in by being a darker fill, which is how the rest of them do it.
@@ -112,11 +108,29 @@ LibraryPanel::LibraryPanel()
     list.setRowHeight (rowHeight);
     list.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
     list.setColour (juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
+
+    applyColours();
     list.getViewport()->setScrollBarThickness (8);
     addAndMakeVisible (list);
 }
 
 LibraryPanel::~LibraryPanel() = default;
+
+void LibraryPanel::applyColours()
+{
+    title.setColour (juce::Label::textColourId, Theme::text());
+
+    search.setColour (juce::TextEditor::backgroundColourId, Theme::background());
+    search.setColour (juce::TextEditor::textColourId, Theme::text());
+    search.setColour (juce::TextEditor::highlightColourId, Theme::accent().withAlpha (0.4f));
+
+    // The placeholder's ink is set with its text, so it is put back rather than the
+    // folder being read again -- a colour is no reason to touch the disk.
+    search.setTextToShowWhenEmpty (folder.isDirectory()
+                                       ? "Search in " + folder.getFileName() + "..."
+                                       : "Choose a folder...",
+                                   Theme::comment());
+}
 
 //==============================================================================
 void LibraryPanel::setFolder (const juce::File& newFolder)

@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 #include "ui/AboutPanel.h"
+#include "ui/ThemePanel.h"
 #include "ui/AnalyserFeed.h"
 #include "ui/AnalyserGraph.h"
 #include "ui/BlendPad.h"
@@ -26,7 +27,8 @@
 */
 class PluginEditor : public juce::AudioProcessorEditor,
                      public juce::DragAndDropContainer,
-                     private juce::Timer
+                     private juce::Timer,
+                     private juce::ChangeListener
 {
 public:
     explicit PluginEditor (PluginProcessor&);
@@ -54,6 +56,13 @@ private:
     void beginBlendGesture (bool starting);
 
     void showSettingsMenu();
+
+    /** The handful of colours this window takes once rather than reading as it draws. */
+    void applyColours();
+
+    /** The theme moved. Re-reads the look and feel's colours, tells every child, and
+        repaints -- which is the whole of what a theme change is from here. */
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void refreshBypassLook();
 
     PluginProcessor& processorRef;

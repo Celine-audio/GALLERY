@@ -64,6 +64,15 @@ namespace Celine
         static constexpr int tabHeight = Theme::tabBarHeight;
 
     private:
+        /** The colours these three buttons wear, re-read whenever the theme moves.
+
+            JUCE tells a widget its colours rather than asking, so a colour taken once
+            in a constructor is a snapshot -- and a snapshot does not follow a theme.
+            `lookAndFeelChanged` is where the window tells every child to take them
+            again; anything here that calls `setColour` belongs in this function. */
+        void applyColours();
+        void lookAndFeelChanged() override { applyColours(); }
+
         TabHeader tabs { { "SPECTRUM", "CURVE" } };
 
         MultiSpectrumDisplay spectrum;

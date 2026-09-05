@@ -14,9 +14,7 @@ include(PamplejuceMacOS)
 include(JUCEDefaults)
 
 # =============================================================================
-# NEW PLUGIN? Run ./scaffold.sh and it rewrites everything below for you.
-#
-# Doing it by hand instead, these are the five that matter:
+# NEW PLUGIN? Of everything set below, these are the five that matter:
 #   PROJECT_NAME   internal, no spaces
 #   PRODUCT_NAME   what DAWs display, spaces allowed
 #   BUNDLE_ID      reverse-DNS, must be unique per plugin
@@ -88,7 +86,7 @@ endif ()
 
 # Change me! Set the plugin formats you want built
 # Valid choices: AAX Unity VST VST3 AU AUv3 LV2 Standalone
-set(FORMATS AU VST3 LV2)
+set(FORMATS AAX AU VST3 LV2)
 
 if (BUILD_STANDALONE)
     list(PREPEND FORMATS Standalone)

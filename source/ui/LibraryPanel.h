@@ -67,6 +67,14 @@ namespace Celine
 
         void listBoxItemClicked (int row, const juce::MouseEvent&) override;
 
+        /** Every colour this takes once rather than reading as it draws, gathered so the
+            theme can hand them back. JUCE tells a widget its colours rather than asking,
+            so a colour set in a constructor is a snapshot -- and a snapshot does not
+            follow a theme change. `lookAndFeelChanged` is the window telling every child
+            to take them again. */
+        void applyColours();
+        void lookAndFeelChanged() override { applyColours(); }
+
         void chooseFolder();
         void rescan();
 

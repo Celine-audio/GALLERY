@@ -35,7 +35,7 @@ namespace Celine
                            public juce::DragAndDropTarget
     {
     public:
-        IrStripControl (PluginProcessor&, int slotIndex, juce::Colour identity);
+        IrStripControl (PluginProcessor&, int slotIndex);
         ~IrStripControl() override;
 
         /** Pulls the filename and the cut handles back out of the processor. Called by
@@ -79,9 +79,16 @@ namespace Celine
 
         juce::RangedAudioParameter* cutParameter (CutRangeSlider::Handle) const;
 
+        /** This slot's identity colour, asked for rather than held: it is a theme
+            entry, and a copy taken at construction would not follow one being changed. */
+        juce::Colour colour() const { return Theme::irSlot (slot); }
+
+        /** The colours this takes once rather than reading as it draws. See Theme.h. */
+        void applyColours();
+        void lookAndFeelChanged() override { applyColours(); }
+
         PluginProcessor& processorRef;
         const int slot;
-        const juce::Colour colour;
 
         LetterToggleButton soloButton { "Solo", "S", Theme::solo() };
         LetterToggleButton muteButton { "Mute", "M", Theme::mute() };

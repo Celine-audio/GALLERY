@@ -30,8 +30,6 @@ AnalyserGraph::AnalyserGraph()
     addChildComponent (waveform);
 
     zoomButton.setClickingTogglesState (true);
-    zoomButton.setColour (juce::TextButton::buttonColourId, Theme::surface());
-    zoomButton.setColour (juce::TextButton::buttonOnColourId, Theme::accent());
     zoomButton.setTooltip ("Zoom to the first few milliseconds for precise alignment.");
 
     zoomButton.onClick = [this]
@@ -50,8 +48,6 @@ AnalyserGraph::AnalyserGraph()
     // sits perfectly still until you find the button reads as a picture rather than as
     // a meter.
     outputButton.setToggleState (true, juce::dontSendNotification);
-    outputButton.setColour (juce::TextButton::buttonColourId, Theme::surface());
-    outputButton.setColour (juce::TextButton::buttonOnColourId, Theme::accent());
     outputButton.setTooltip ("Show the frequency analyser (post).");
 
     outputButton.onClick = [this]
@@ -63,8 +59,6 @@ AnalyserGraph::AnalyserGraph()
     addAndMakeVisible (outputButton);
 
     splitButton.setClickingTogglesState (true);
-    splitButton.setColour (juce::TextButton::buttonColourId, Theme::surface());
-    splitButton.setColour (juce::TextButton::buttonOnColourId, Theme::accent());
     splitButton.setTooltip ("Show the distinct IR spectra.");
 
     splitButton.onClick = [this]
@@ -74,6 +68,17 @@ AnalyserGraph::AnalyserGraph()
     };
 
     addAndMakeVisible (splitButton);
+
+    applyColours();
+}
+
+void AnalyserGraph::applyColours()
+{
+    for (auto* button : { &zoomButton, &outputButton, &splitButton })
+    {
+        button->setColour (juce::TextButton::buttonColourId, Theme::surface());
+        button->setColour (juce::TextButton::buttonOnColourId, Theme::accent());
+    }
 }
 
 AnalyserGraph::View AnalyserGraph::getView() const noexcept

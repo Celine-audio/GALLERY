@@ -86,6 +86,10 @@ PluginEditor::PluginEditor (PluginProcessor& p)
 
     processorRef.setUiActive (true);
 
+    // The theme is process-wide, so a colour changed in one window has to reach every
+    // other -- including this one, when the change was made somewhere else.
+    Theme::palette().addChangeListener (this);
+
     // Fast enough that dragging a knob moves the curve with the pointer, slow enough to
     // cost nothing when nothing is moving -- see signature(), which is what most of
     // these ticks do and then stop.
@@ -108,7 +112,6 @@ void PluginEditor::buildToolbar()
 
     wordmarkText.setText (juce::String (JucePlugin_Name).toLowerCase(), juce::dontSendNotification);
     wordmarkText.setFont (Fonts::logo (24.0f));
-    wordmarkText.setColour (juce::Label::textColourId, Theme::text());
     wordmarkText.setJustificationType (juce::Justification::centredLeft);
     wordmarkText.setInterceptsMouseClicks (false, false);
     addChildComponent (wordmarkText);
@@ -126,10 +129,14 @@ void PluginEditor::buildToolbar()
 
     settingsButton.onClick = [this] { showSettingsMenu(); };
     addAndMakeVisible (settingsButton);
+
+    applyColours();
 }
 
 PluginEditor::~PluginEditor()
 {
+    Theme::palette().removeChangeListener (this);
+
     stopTimer();
     processorRef.setUiActive (false);
     setLookAndFeel (nullptr);
@@ -190,7 +197,7 @@ void PluginEditor::buildContent()
 
     for (int slot = 0; slot < ParamID::numSlots; ++slot)
     {
-        auto strip = std::make_unique<IrStripControl> (processorRef, slot, Theme::irSlot (slot));
+        auto strip = std::make_unique<IrStripControl> (processorRef, slot);
         addAndMakeVisible (*strip);
         strips[(size_t) slot] = std::move (strip);
     }
@@ -469,6 +476,10 @@ void PluginEditor::showSettingsMenu()
 {
     juce::PopupMenu menu;
 
+    juce::PopupMenu::Item theme ("Theme" + ellipsis);
+    theme.setAction ([this] { showThemeWindow (this); });
+    menu.addItem (theme);
+
     juce::PopupMenu::Item about ("About " + juce::String (JucePlugin_Name) + ellipsis);
     about.setAction ([this] { showAboutWindow (this); });
     menu.addItem (about);
@@ -476,6 +487,27 @@ void PluginEditor::showSettingsMenu()
     // A menu has no parent to inherit a look and feel from.
     menu.setLookAndFeel (&lookAndFeel);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&settingsButton));
+}
+
+void PluginEditor::applyColours()
+{
+    wordmarkText.setColour (juce::Label::textColourId, Theme::text());
+}
+
+void PluginEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    applyColours();
+
+    // Everything JUCE draws for us is *told* its colours, so the look and feel has to
+    // re-read them before anything repaints -- see PluginLookAndFeel::applyPalette.
+    lookAndFeel.applyPalette();
+
+    // And every child that took a colour once and kept it gets a chance to take it
+    // again. JUCE walks the tree for us; a control that snapshots colours says so by
+    // overriding lookAndFeelChanged().
+    sendLookAndFeelChange();
+
+    repaint();
 }
 
 void PluginEditor::refreshBypassLook()
