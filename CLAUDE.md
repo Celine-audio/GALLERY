@@ -293,10 +293,26 @@ key in the file. Adding one is free — an unknown key is ignored and a missing 
 its shipped value, which is what lets a theme written by a plugin with more colours than
 this one still load.
 
-**The theme file is shared by every Céline plugin** — one `theme.celthm` under the
-company folder. Theming one of them themes all of them, which is the point of a house
-look, and the ignore-unknown-keys rule is what makes one file serve three plugins with
-different palettes.
+**Each plugin keeps its own theme**, in `<PRODUCT_NAME>.celthm` under the company
+folder — one file per plugin, so every instance of it on the machine wears the same
+colours whatever host or format it is loaded as. A cab loader and a circuit designer are
+not obliged to look alike.
+
+They stay cross-compatible: a theme exported from one loads into another, and the
+ignore-unknown-keys rule is what makes that work — the colours the other plugin does not
+have are skipped, and the ones it has that the file omits keep their shipped values.
+
+**Editing a colour writes nothing.** It changes what is on screen and marks the palette
+unsaved; `Palette::store()` is the only thing that touches the file, and the theme
+editor's **Save** button is the only thing that calls it. A colour picker sends a change
+per mouse move, so anything automatic here is a file per mouse move.
+
+**A plugin format is its own loaded module, with its own copy of everything static**, so
+the VST3 and the AU open in one session are two palettes that never meet. They are
+brought into step by `Palette::refreshFromDisk()`, called when a window opens and when
+the theme editor opens — the two moments it can matter. Nothing polls, and nothing runs
+in the background. Unsaved colours are left alone, so opening a second window cannot
+take away what you are in the middle of choosing.
 
 Two things a theme change has to do, and both are easy to leave out:
 `PluginLookAndFeel::applyPalette()` re-reads everything JUCE is *told* rather than asks

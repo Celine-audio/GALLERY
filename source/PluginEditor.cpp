@@ -90,6 +90,11 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     // other -- including this one, when the change was made somewhere else.
     Theme::palette().addChangeListener (this);
 
+    // Once, here, rather than on a timer: another instance may have saved a theme since
+    // this module last looked, and a window opening is the moment that can matter. The
+    // disk is not touched again unless somebody asks it to be.
+    Theme::palette().refreshFromDisk();
+
     // Fast enough that dragging a knob moves the curve with the pointer, slow enough to
     // cost nothing when nothing is moving -- see signature(), which is what most of
     // these ticks do and then stop.
@@ -100,16 +105,6 @@ void PluginEditor::buildToolbar()
 {
     // Tinted rather than used as drawn: the artwork carries whatever colours it was
     // saved with, and the palette is the one that has to win.
-    logo = Assets::drawable ("logo.svg");
-
-    if (logo != nullptr)
-        Assets::tint (*logo, Theme::text());
-
-    wordmark = Assets::drawable (ProductInfo::wordmarkAsset, Assets::IfMissing::returnNull);
-
-    if (wordmark != nullptr)
-        Assets::tint (*wordmark, Theme::text());
-
     wordmarkText.setText (juce::String (JucePlugin_Name).toLowerCase(), juce::dontSendNotification);
     wordmarkText.setFont (Fonts::logo (24.0f));
     wordmarkText.setJustificationType (juce::Justification::centredLeft);
@@ -491,16 +486,37 @@ void PluginEditor::showSettingsMenu()
 
 void PluginEditor::applyColours()
 {
+    // Re-read from the binary and tinted here rather than in the constructor. Tinting
+    // writes the colour into the drawable, so a second pass would be colouring the
+    // result of the first rather than the artwork -- which is how a mark ends up stuck
+    // on whatever colour the theme happened to be when the window opened.
+    logo = Assets::drawable ("logo.svg");
+
+    if (logo != nullptr)
+        Assets::tint (*logo, Theme::text());
+
+    wordmark = Assets::drawable (ProductInfo::wordmarkAsset, Assets::IfMissing::returnNull);
+
+    if (wordmark != nullptr)
+        Assets::tint (*wordmark, Theme::text());
+
+    // Explicitly chosen, so explicitly handed back: an override set once is a snapshot
+    // like any other, and this one is the whole of what "bypassed" looks like.
+    bypassButton.setActiveColour (Theme::danger());
+
     wordmarkText.setColour (juce::Label::textColourId, Theme::text());
 }
 
 void PluginEditor::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    applyColours();
-
+    // First, because applyColours may read colours back out of it, and asking before
+    // this ran would answer with the colour the theme is replacing.
+    //
     // Everything JUCE draws for us is *told* its colours, so the look and feel has to
     // re-read them before anything repaints -- see PluginLookAndFeel::applyPalette.
     lookAndFeel.applyPalette();
+
+    applyColours();
 
     // And every child that took a colour once and kept it gets a chance to take it
     // again. JUCE walks the tree for us; a control that snapshots colours says so by

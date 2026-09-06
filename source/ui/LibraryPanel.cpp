@@ -94,13 +94,11 @@ LibraryPanel::LibraryPanel()
     search.onTextChange = [this] { applyFilter(); };
     addAndMakeVisible (search);
 
-    save.setIconColour (Theme::accent());
     save.setTooltip ("Export the blend as a stereo response.");
     save.setEnabled (false);
     save.onClick = [this] { if (onExport != nullptr) onExport(); };
     addAndMakeVisible (save);
 
-    browse.setIconColour (Theme::accent());
     browse.setTooltip ("Choose a folder of cabinet responses.");
     browse.onClick = [this] { chooseFolder(); };
     addAndMakeVisible (browse);
@@ -118,6 +116,13 @@ LibraryPanel::~LibraryPanel() = default;
 
 void LibraryPanel::applyColours()
 {
+    // These two carry the panel's accent rather than the toolbar's grey -- they sit in
+    // a panel of their own that wears it. Set here rather than at construction: an icon
+    // colour handed over once is a snapshot like any other, and these were the last two
+    // in the window that a theme change could not reach.
+    save.setIconColour (Theme::accent());
+    browse.setIconColour (Theme::accent());
+
     title.setColour (juce::Label::textColourId, Theme::text());
 
     search.setColour (juce::TextEditor::backgroundColourId, Theme::background());
