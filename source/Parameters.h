@@ -69,6 +69,14 @@ namespace ParamID
         "ir1File", "ir2File", "ir3File", "ir4File"
     };
 
+    /** Which side of a stereo file that slot was loaded from -- "left", "right", or
+        absent for the whole file. Beside the path because it is part of which response
+        this is: a session that remembered the file and forgot the side would reopen
+        sounding different. */
+    inline constexpr PerSlot<const char*> sideProperty {
+        "ir1Side", "ir2Side", "ir3Side", "ir4Side"
+    };
+
     /** And where the last one was chosen from, for the same reason: a folder is not a
         parameter, but forgetting it between four slots is an annoyance. */
     inline constexpr auto browseDirectoryProperty = "browseDirectory";

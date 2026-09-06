@@ -105,7 +105,8 @@ public:
 
     /** Reads a file into the slot and rebuilds from it. The failure is worth showing:
         see ImpulseResponse::loadFrom for what it can say. */
-    juce::Result loadFrom (const juce::File&);
+    juce::Result loadFrom (const juce::File&,
+                           ImpulseResponse::Side = ImpulseResponse::Side::both);
 
     /** Empties the slot. The engine keeps running -- with nothing in it, which is
         silence -- rather than being torn down, so a slot can be refilled without a

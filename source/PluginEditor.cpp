@@ -82,7 +82,6 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     if (auto* constrainer = getConstrainer())
         constrainer->setFixedAspectRatio ((double) aspectRatio);
 
-    setSize (storedWidth, storedHeight);
 
     processorRef.setUiActive (true);
 
@@ -99,6 +98,12 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     // cost nothing when nothing is moving -- see signature(), which is what most of
     // these ticks do and then stop.
     startTimerHz (30);
+
+    // Last, and it matters. setSize fires resized(), which measures the logo and the
+    // wordmark to lay the header out -- and those are loaded in applyColours above. Done
+    // the other way round the first layout saw no artwork, placed nothing, and the
+    // header stayed empty until something else resized the window.
+    setSize (storedWidth, storedHeight);
 }
 
 void PluginEditor::buildToolbar()
@@ -110,7 +115,6 @@ void PluginEditor::buildToolbar()
     wordmarkText.setJustificationType (juce::Justification::centredLeft);
     wordmarkText.setInterceptsMouseClicks (false, false);
     addChildComponent (wordmarkText);
-    wordmarkText.setVisible (wordmark == nullptr);
 
     bypassButton.setClickingTogglesState (true);
     bypassButton.setActiveColour (Theme::danger());
@@ -365,10 +369,19 @@ void PluginEditor::setBlend (float x, float y)
         if (auto* parameter = blendParameter (axis.first))
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (axis.second));
 
-    // Led rather than waited for: the poll that redraws the graph runs at thirty a
-    // second, and a mix curve that lags the pointer by a frame feels like a pad that
-    // is stuck.
-    feed.refresh();
+    // Deliberately *not* refreshed here.
+    //
+    // This used to lead the poll rather than wait for it, to spare the mix curve a
+    // frame of lag. The cost of that is a full recompute per mouse-move: under the
+    // spectrum view refresh() sums four responses and takes an FFT of the result, which
+    // is far more than one mouse event's worth of work. macOS hides it by coalescing
+    // moves; Windows delivers every one, so the message queue backed up and the pad
+    // only caught up when the pointer stopped -- and only under the spectrum, because
+    // the curve view merely re-summarises what is already computed.
+    //
+    // The timer picks it up within a frame anyway: the blend is in the feed's signature,
+    // so hasChanged() is true on the next tick. The dot itself never waited on any of
+    // this -- the pad draws it as the pointer moves.
 }
 
 void PluginEditor::beginBlendGesture (bool starting)
@@ -443,11 +456,18 @@ void PluginEditor::resized()
             return width;
         };
 
-        place (logo, 26, logoBounds);
+        place (logo, 20, logoBounds);
         header.removeFromLeft (14);
 
         if (wordmark != nullptr)
-            place (wordmark, 18, wordmarkBounds);
+        {
+            // Sized by the letters rather than by the ink box: see Assets::xHeightFraction.
+            // A word with an ascender or a descender needs a taller box to put the same
+            // sized letters in it, and asking for the box directly is what made
+            // "gallery" read smaller than "aura" beside the same house mark.
+            const auto letters = 14.0f / Celine::Assets::xHeightFraction (*wordmark);
+            place (wordmark, juce::roundToInt (letters), wordmarkBounds);
+        }
         else
             wordmarkText.setBounds (header.removeFromLeft (220));
 
@@ -499,6 +519,11 @@ void PluginEditor::applyColours()
 
     if (wordmark != nullptr)
         Assets::tint (*wordmark, Theme::text());
+
+    // Here rather than in the constructor: the wordmark is loaded above, so asking
+    // earlier always answered null and left the fallback text showing *behind* the
+    // artwork once it arrived.
+    wordmarkText.setVisible (wordmark == nullptr);
 
     // Explicitly chosen, so explicitly handed back: an override set once is a snapshot
     // like any other, and this one is the whole of what "bypassed" looks like.

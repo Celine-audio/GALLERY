@@ -80,7 +80,8 @@ public:
 
     /** Reads a file into a slot. The failure carries something worth putting in front
         of somebody: too long and unreadable are different problems. */
-    juce::Result loadImpulseResponse (int slot, const juce::File&);
+    juce::Result loadImpulseResponse (int slot, const juce::File&,
+                                      ImpulseResponse::Side = ImpulseResponse::Side::both);
 
     void unloadImpulseResponse (int slot);
 
@@ -88,6 +89,14 @@ public:
         anything there at all. */
     juce::String getResponseName (int slot) const;
     bool isSlotLoaded (int slot) const;
+
+    /** How many channels the loaded response has -- one after a side was chosen from a
+        stereo file, two when the whole file is being convolved. Zero for an empty slot.
+
+        What the strip puts beside the name: a cabinet convolved in mono and one
+        convolved in stereo behave differently, and nothing else on the strip says
+        which of the two you have. */
+    int getResponseChannels (int slot) const;
 
     /** The file a slot holds. */
     juce::File getResponseFile (int slot) const;

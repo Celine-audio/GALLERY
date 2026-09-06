@@ -75,9 +75,9 @@ void IrSlot::reset() noexcept
 }
 
 //==============================================================================
-juce::Result IrSlot::loadFrom (const juce::File& file)
+juce::Result IrSlot::loadFrom (const juce::File& file, ImpulseResponse::Side side)
 {
-    const auto result = response.loadFrom (file);
+    const auto result = response.loadFrom (file, side);
 
     if (result.wasOk())
         rebuild();

@@ -404,7 +404,8 @@ void PluginProcessor::applyShaping()
 }
 
 //==============================================================================
-juce::Result PluginProcessor::loadImpulseResponse (int slot, const juce::File& file)
+juce::Result PluginProcessor::loadImpulseResponse (int slot, const juce::File& file,
+                                                   ImpulseResponse::Side side)
 {
     if (! juce::isPositiveAndBelow (slot, ParamID::numSlots))
         return juce::Result::fail ("There is no such slot.");
@@ -413,11 +414,18 @@ juce::Result PluginProcessor::loadImpulseResponse (int slot, const juce::File& f
 
     {
         const juce::ScopedLock lock (rebuildLock);
-        result = slots[(size_t) slot].loadFrom (file);
+        result = slots[(size_t) slot].loadFrom (file, side);
     }
 
     if (result.wasOk())
     {
+        apvts.state.setProperty (
+            ParamID::sideProperty[(size_t) slot],
+            side == ImpulseResponse::Side::left    ? juce::String ("left")
+            : side == ImpulseResponse::Side::right ? juce::String ("right")
+                                                   : juce::String(),
+            nullptr);
+
         apvts.state.setProperty (ParamID::fileProperty[(size_t) slot],
                                  file.getFullPathName(), nullptr);
         ++rebuildCount;
@@ -437,7 +445,17 @@ void PluginProcessor::unloadImpulseResponse (int slot)
     }
 
     apvts.state.setProperty (ParamID::fileProperty[(size_t) slot], juce::String(), nullptr);
+    apvts.state.setProperty (ParamID::sideProperty[(size_t) slot], juce::String(), nullptr);
     ++rebuildCount;
+}
+
+int PluginProcessor::getResponseChannels (int slot) const
+{
+    if (! juce::isPositiveAndBelow (slot, ParamID::numSlots))
+        return 0;
+
+    const juce::ScopedLock lock (rebuildLock);
+    return slots[(size_t) slot].getResponse().getNumChannels();
 }
 
 juce::String PluginProcessor::getResponseName (int slot) const
@@ -655,7 +673,15 @@ void PluginProcessor::reloadFilesFromState()
             if (path.isEmpty() || ! file.existsAsFile())
                 slots[index].unload();
             else
-                slots[index].loadFrom (file);
+            {
+                const juce::String stored =
+                    apvts.state.getProperty (ParamID::sideProperty[index], juce::String());
+
+                slots[index].loadFrom (file,
+                                       stored == "left"    ? ImpulseResponse::Side::left
+                                       : stored == "right" ? ImpulseResponse::Side::right
+                                                           : ImpulseResponse::Side::both);
+            }
         }
     }
 

@@ -8,6 +8,16 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
+- A **STEREO** or **MONO** badge beside the loaded response's name. A slot loaded from
+  one side of a stereo file convolves in mono, and once the file was chosen nothing on
+  the strip said which of the two you had.
+- Closing the theme editor with colours you have not saved now asks, offering **Save**,
+  **Discard** or **Cancel**. Every way out goes through it — the Close button, the escape
+  key and the title bar's own close button.
+- **Loading a stereo response asks which side to use.** A two-channel cabinet capture is
+  usually two microphone positions rather than a stereo image, so convolving both put a
+  different cabinet in each ear with nothing to say a choice had been made. The answer is
+  kept in the session beside the path, so reopening one sounds the way you left it.
 - `tests/ThemeReachTests.cpp`, which renders the whole editor, moves every colour the
   theme has, renders it again, and fails if anything the design ships is still on screen.
   It found four real bugs the day it was first run across all four plugins.
@@ -19,6 +29,47 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   one does not have are simply skipped.
 ### Fixed
 
+- **The caret in a value box was invisible on the light strip.** It was the last thing
+  in the box still taking its colour from the look and feel, which sets it for the dark
+  half of the design -- so on the near-white panel the text cursor was white on white.
+  It takes the row's own ink now, like the text and the selection around it.
+- **The value text on the light strip turned white while you edited it.** Not the text
+  colour, as it looked: opening the editor selects the whole value, so what you see the
+  instant you click in is `highlightedTextColourId` -- which the look and feel sets for
+  the dark half of the design, because it has no way of knowing a particular row stands
+  on the other one. The selection now takes the row's own ink, with a wash of that ink
+  behind it, so it reads on either side of the split.
+- **The header came up empty until the window was resized.** `setSize` fires `resized()`,
+  which measures the logo and the wordmark to lay the header out — and those had moved
+  into `applyColours`, which ran afterwards. So the first layout saw no artwork, placed
+  nothing, and the header stayed blank until something else resized the window. `setSize`
+  goes last in the constructor again, which is the house rule and exactly this reason.
+- The house mark and the plugin's wordmark are the same size in every plugin. GALLERY
+  drew them at 26 and 18 pixels where AURA and SPACE used 20 and 14, on a header band
+  that is the same height in all three.
+- **Clicking into a value box no longer draws a border round it.** The slider's text box
+  asked for one in the armed colour while it was being edited -- the last rule left
+  anywhere in the window, and one that appeared on a click, which is exactly what made it
+  read as a system control dropped into the design.
+- The digits you type into a value box are the theme's ink. JUCE fills
+  `textWhenEditingColourId` from its own colour scheme rather than leaving it unset, so
+  the text being edited was never taking its colour from the theme.
+- **Discarding a theme now puts the colours back.** It marked the change abandoned and
+  left it on screen, so "discard" only meant "do not write the file" -- the window behind
+  it kept the colours you had just rejected until something else reloaded the theme.
+- **The theme window no longer opens behind the plugin.** Building it by hand to
+  intercept every way of closing it lost the two things `DialogWindow::LaunchOptions`
+  does for you: it is on top when the host keeps its own windows on top -- Ableton does,
+  and the window was unreachable without closing the plugin -- and it is told the scale
+  the editor is being shown at.
+- **The blend pad no longer stalls while you drag it.** Every mouse-move recomputed the
+  whole spectrum — four responses summed and transformed — which macOS hid by coalescing
+  moves and Windows did not, so the dot only caught up when the pointer stopped, and only
+  under the Spectrum view. The poll that redraws the graph picks the change up within a
+  frame anyway.
+- The plugin name no longer sits behind its own wordmark. Loading the artwork moved into
+  `applyColours` and the fallback text's visibility was left behind in the constructor,
+  where the wordmark had not been read yet.
 - **The yellow ring around whatever you were editing is gone.** JUCE draws a focus
   outline as a separate desktop window, and its default is a rounded rectangle at a fixed
   radius of three — so on a field rounded to the house radius it traced a shape the

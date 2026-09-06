@@ -32,10 +32,27 @@ public:
         host out of CPU rather than a feature. */
     static constexpr double maximumSeconds = 2.0;
 
+    /** Which half of a stereo file to convolve with.
+
+        A stereo cabinet capture is two microphone positions, not a stereo image: run
+        both and the slot is two different cabinets at once, one per ear. So the choice
+        is the user's, and it is part of what a slot *is* -- it goes in the session
+        beside the path, or reopening one would silently pick differently. */
+    enum class Side { both, left, right };
+
     /** Reads a file. Returns a failure carrying something worth showing a user: a
         missing codec and a file that is simply too long are different problems, and
-        "could not load" answers neither of them. */
-    juce::Result loadFrom (const juce::File&);
+        "could not load" answers neither of them.
+
+        `side` is ignored for a mono file, which has only one answer. */
+    juce::Result loadFrom (const juce::File&, Side = Side::both);
+
+    /** Which side the loaded response was taken from. `both` for a mono file. */
+    Side getSide() const noexcept { return side; }
+
+    /** How many channels a file holds, without loading it -- what the UI asks before
+        deciding whether there is a question to put to anybody. Zero if unreadable. */
+    static int countChannels (const juce::File&);
 
     /** Forgets the response, leaving the slot empty and silent. */
     void clear();
@@ -77,6 +94,7 @@ private:
 
     juce::AudioBuffer<float> source;
     double sourceSampleRate = 0.0;
+    Side side = Side::both;
     juce::String name;
     juce::File file;
 

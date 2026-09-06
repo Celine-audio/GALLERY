@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CutRangeSlider.h"
+#include "../dsp/ImpulseResponse.h"
 #include "IconButton.h"
 #include "LetterToggleButton.h"
 #include "ParameterControl.h"
@@ -70,7 +71,11 @@ namespace Celine
         void layOutKnobs (juce::Rectangle<int> row);
 
         void chooseFile();
-        void load (const juce::File&);
+        /** Loads a file into this slot, asking which side first if it is stereo. */
+    void load (const juce::File&);
+
+    /** The half of `load` that actually loads, once the question has an answer. */
+    void loadSide (const juce::File&, ImpulseResponse::Side);
 
         /** Writes one of the two cut frequencies, bracketed as a host gesture so a
             drag is recorded as one edit rather than a hundred. */
@@ -106,6 +111,11 @@ namespace Celine
         IconButton clearButton { "Empty this slot", "xmark-solid-full.svg" };
 
         juce::Label fileName;
+
+    /** STEREO or MONO, on the left of the name. A slot loaded from one side of a stereo
+        file convolves in mono, and without this the two are indistinguishable once the
+        file has been chosen. */
+    juce::Label channels;
 
         KnobControl alignKnob, panKnob;
 

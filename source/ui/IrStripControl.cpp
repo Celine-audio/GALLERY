@@ -106,6 +106,11 @@ void IrStripControl::buildFileControls()
     };
     addAndMakeVisible (clearButton);
 
+    channels.setFont (Fonts::light (9.5f));
+    channels.setJustificationType (juce::Justification::centredLeft);
+    channels.setInterceptsMouseClicks (false, false);
+    addAndMakeVisible (channels);
+
     fileName.setFont (Fonts::light (11.0f));
     fileName.setColour (juce::Label::textColourId, Theme::comment());
     fileName.setJustificationType (juce::Justification::centredRight);
@@ -222,6 +227,14 @@ void IrStripControl::refresh()
     fileName.setColour (juce::Label::textColourId,
                         ! loaded && stored.isNotEmpty() ? Theme::error() : Theme::comment());
 
+    // Blank rather than "MONO" when there is nothing loaded: an empty slot is not a
+    // mono one, and a badge on it would be answering a question nobody asked.
+    channels.setText (loaded ? (processorRef.getResponseChannels (slot) > 1 ? "STEREO" : "MONO")
+                             : juce::String(),
+                      juce::dontSendNotification);
+
+    channels.setColour (juce::Label::textColourId, Theme::comment());
+
     // Nothing to empty is nothing to press. Left enabled it would be a button that
     // sometimes does nothing, which is a button you have to test to understand.
     const auto canDiscard = loaded || stored.isNotEmpty();
@@ -330,7 +343,44 @@ void IrStripControl::chooseFile()
 
 void IrStripControl::load (const juce::File& file)
 {
-    const auto result = processorRef.loadImpulseResponse (slot, file);
+    // A stereo cabinet capture is two microphone positions, not a stereo image. Convolve
+    // both and the slot becomes two different cabinets at once, one in each ear -- which
+    // sounds wide and wrong, and gives no hint that a choice was made on your behalf. So
+    // the choice is put to whoever loaded it.
+    if (ImpulseResponse::countChannels (file) < 2)
+    {
+        loadSide (file, ImpulseResponse::Side::both);
+        return;
+    }
+
+    const auto options =
+        juce::MessageBoxOptions()
+            .withIconType (juce::MessageBoxIconType::QuestionIcon)
+            .withTitle ("Impulse response is stereo")
+            .withMessage (file.getFileName()
+                          + " is stereo."
+                            "\n\nWhich channel should this slot use?")
+            .withButton ("Left")
+            .withButton ("Right")
+            .withButton ("Both")
+            .withAssociatedComponent (this);
+
+    juce::NativeMessageBox::showAsync (
+        options,
+        [safe = juce::Component::SafePointer<IrStripControl> (this), file] (int chosen)
+        {
+            if (safe == nullptr)
+                return;
+
+            safe->loadSide (file, chosen == 0   ? ImpulseResponse::Side::left
+                                  : chosen == 1 ? ImpulseResponse::Side::right
+                                                : ImpulseResponse::Side::both);
+        });
+}
+
+void IrStripControl::loadSide (const juce::File& file, ImpulseResponse::Side side)
+{
+    const auto result = processorRef.loadImpulseResponse (slot, file, side);
 
     if (result.failed())
     {
@@ -511,7 +561,13 @@ void IrStripControl::resized()
 
     layOutTopRow (take (0.21f, juce::jmax (pillHeight, loadHeight) + 4));
 
-    fileName.setBounds (take (0.10f, nameHeight));
+    {
+        // The badge on the left, the name filling what is left of the same row.
+        auto row = take (0.10f, nameHeight);
+
+        channels.setBounds (row.removeFromLeft (46));
+        fileName.setBounds (row);
+    }
 
     // The knobs get whatever is left once the two rows below have had their share, so
     // they grow with the window rather than being squeezed out of it.
