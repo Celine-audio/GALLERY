@@ -47,6 +47,9 @@ private:
 
     void refreshBlendPad();
 
+    /** Counts ticks between analyser rebuilds -- see analyserEveryNthTick. */
+    int analyserTick = 0;
+
     /** Writes the blend to a file the user picks, as a stereo response. */
     void exportBlend();
 

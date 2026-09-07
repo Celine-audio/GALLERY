@@ -32,6 +32,19 @@ namespace
     constexpr int headerHeight = Theme::toolbarHeight;
     constexpr int gap = 10;
 
+    /** How often the window redraws. Sixty so that the strips and the blend pad follow
+        the pointer rather than stepping after it. */
+    constexpr int refreshHz = 60;
+
+    /** ...but the analyser is rebuilt every other tick, not every one.
+
+        Under the spectrum view refreshing it sums four responses and transforms the
+        result, which is far more than one frame's worth of work -- doing it sixty times
+        a second while somebody drags the blend pad is how the pad came to stall on
+        Windows in the first place. Thirty was enough for the picture then and is enough
+        now; what wanted the extra frames is everything else in here. */
+    constexpr int analyserEveryNthTick = 2;
+
     /** The output fader's column, AURA's width exactly. */
     constexpr int faderWidth = 64;
 
@@ -97,7 +110,7 @@ PluginEditor::PluginEditor (PluginProcessor& p)
     // Fast enough that dragging a knob moves the curve with the pointer, slow enough to
     // cost nothing when nothing is moving -- see signature(), which is what most of
     // these ticks do and then stop.
-    startTimerHz (30);
+    startTimerHz (refreshHz);
 
     // Last, and it matters. setSize fires resized(), which measures the logo and the
     // wordmark to lay the header out -- and those are loaded in applyColours above. Done
@@ -267,6 +280,13 @@ void PluginEditor::timerCallback()
         strip->refresh();
 
     refreshBlendPad();
+
+    // The expensive half, at half the rate. See analyserEveryNthTick.
+    if (++analyserTick < analyserEveryNthTick)
+        return;
+
+    analyserTick = 0;
+
     feed.refreshOutput();
 
     if (feed.hasChanged())
