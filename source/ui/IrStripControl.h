@@ -95,10 +95,10 @@ namespace Celine
         PluginProcessor& processorRef;
         const int slot;
 
-        LetterToggleButton soloButton { "Solo", "S", Theme::solo() };
-        LetterToggleButton muteButton { "Mute", "M", Theme::mute() };
+        LetterToggleButton soloButton { "Solo", "S", Theme::Role::solo };
+        LetterToggleButton muteButton { "Mute", "M", Theme::Role::mute };
         LetterToggleButton phaseButton { "Invert polarity",
-                                         juce::String::fromUTF8 ("\xce\xa6"), Theme::phase() };
+                                         juce::String::fromUTF8 ("\xce\xa6"), Theme::Role::phase };
 
         std::array<std::unique_ptr<juce::ButtonParameterAttachment>, 3> stateAttachments;
 

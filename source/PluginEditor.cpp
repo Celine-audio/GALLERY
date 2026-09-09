@@ -526,6 +526,10 @@ void PluginEditor::showSettingsMenu()
 
 void PluginEditor::applyColours()
 {
+    // The graph is drawn from colours the feed hands it, and the feed only rebuilds
+    // when the audio or the layout moves -- neither of which a theme change does.
+    feed.invalidate();
+
     // Re-read from the binary and tinted here rather than in the constructor. Tinting
     // writes the colour into the drawable, so a second pass would be colouring the
     // result of the first rather than the artwork -- which is how a mark ends up stuck

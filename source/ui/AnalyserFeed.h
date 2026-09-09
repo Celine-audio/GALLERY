@@ -46,6 +46,15 @@ namespace Celine
             this was asked. */
         bool hasChanged();
 
+        /** Forgets what the picture was last built from, so the next tick rebuilds it
+            although nothing in the audio has moved.
+
+            For a theme change, which moves what the traces are *coloured* without
+            touching one thing the signature watches. The colours are handed to the
+            displays and kept there, so without this the cabinets keep the hues they
+            were drawn in until a knob is turned. */
+        void invalidate() noexcept { hasSignature = false; }
+
         /** The live trace behind the cabinets. Pulled every tick rather than only on a
             change, because it is the one thing on the graph that moves on its own. */
         void refreshOutput();

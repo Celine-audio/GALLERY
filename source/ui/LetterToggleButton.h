@@ -22,13 +22,18 @@ namespace Celine
         these three mean different things and the design colours them accordingly --
         and because a slot's own colour is deliberately *not* used here: solo means the
         same thing on all four cabinets.
+
+        It is given as a *role*, not as a colour. Handed the colour, this took it once
+        at construction and kept it, so the three pills were the one part of a strip a
+        theme change could not reach -- and the reach test never saw it, because an
+        unlit pill does not draw the colour at all.
     */
     class LetterToggleButton : public juce::Button
     {
     public:
         LetterToggleButton (const juce::String& name, const juce::String& glyph,
-                            juce::Colour litColour)
-            : juce::Button (name), letter (glyph), lit (litColour)
+                            Theme::Role litRole)
+            : juce::Button (name), letter (glyph), lit (litRole)
         {
             setTooltip (name);
             setClickingTogglesState (true);
@@ -46,7 +51,7 @@ namespace Celine
                                             juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f);
             const auto on = getToggleState();
 
-            auto fill = on ? lit : Theme::surface();
+            auto fill = on ? Theme::colour (lit) : Theme::surface();
 
             if (down || highlighted)
                 fill = fill.overlaidWith (Theme::text().withAlpha (down ? 0.16f : 0.08f));
@@ -69,7 +74,7 @@ namespace Celine
 
     private:
         juce::String letter;
-        juce::Colour lit;
+        const Theme::Role lit;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LetterToggleButton)
     };
