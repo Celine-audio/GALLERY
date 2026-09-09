@@ -38,6 +38,24 @@
         }
 
         //======================================================================
+        // The two things on the graph that are not cabinets. Both ship in the
+        // interface's own ink rather than in a fifth and sixth hue, and that is the
+        // point of them: they are what the four are read against, so they must not join
+        // the set of four. Roles of their own all the same -- a theme has to be able to
+        // restyle the labels in this window without the graph following.
+
+        /** The four cabinets summed, as the plugin actually blends them. Ships at
+            text(): it is not a cabinet, and giving it a colour would put it in the same
+            set as the four it is a sum of. */
+        inline juce::Colour blendCurve() { return colour (Role::blendCurve); }
+
+        /** The spectrum leaving the plugin, drawn behind everything as a filled solid
+            rather than a line -- the four cabinets are lines, and making this one too
+            would put five lines on a graph meant to compare four. Ships at comment(),
+            grey and low: it is the ground, not a reading. */
+        inline juce::Colour outputCurve() { return colour (Role::outputCurve); }
+
+        //======================================================================
         // The three states a slot can be put into, which wear the same colours in every
         // strip. Deliberately not the slot's own colour: solo means the same thing on
         // all four, and colouring it by slot would say the opposite.
@@ -51,9 +69,10 @@
         inline juce::Colour onPill() { return colour (Role::onPill); }
 
         //======================================================================
-        // The tab bar over the graph. The library's header beside it is chrome(), the
-        // band the toolbar wears: it carries no tabs, so a tab colour on it would say
-        // there was something there to switch between.
+        // The tab bar over the graph, and the band it sits in. That band runs the width
+        // of the window -- the library's title row on the left, the graph's tabs on the
+        // right -- and the two are meant to read as one row, so they are one colour and
+        // not two that happen to agree.
 
         /** The tab in front. The accent at a fifth of its strength over the graph's
             ground, flattened to an opaque value rather than composited -- as a
@@ -61,10 +80,15 @@
             on, which read as the tab not matching itself. */
         inline juce::Colour tabActive() { return colour (Role::tabActive); }
 
-        /** The toolbar's own colour, so a tab that is not in front reads as part of the
-            chrome rather than as a control waiting to be pressed. Its own role rather
-            than an alias of chrome(): a theme that moved one and not the other would
-            otherwise have no way to say so. */
+        /** The band itself, worn by a tab that is not in front and by the library's
+            title row, which carries no tabs at all. So the name is half the story: it
+            is the ground a panel's title sits on, and a tab that is not in front is a
+            tab that has sunk back into it rather than a control waiting to be pressed.
+
+            Ships at the toolbar's value, and is its own role rather than an alias of
+            headerBackground(): the row across the middle of the window and the row at
+            the top of it are two different rows, and a theme has to be able to say
+            so. */
         inline juce::Colour tabInactive() { return colour (Role::tabInactive); }
 
         /** The button that throws something away. Worn only while there is something to

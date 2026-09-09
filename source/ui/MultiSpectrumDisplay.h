@@ -45,7 +45,8 @@ namespace Celine
 
             Behind and in grey, not as a fifth colour: it is the ground the four are
             read against -- what the cabinets are doing *to something* -- and a fifth
-            trace competing with them would cost more than it told. */
+            trace competing with them would cost more than it told. Theme::outputCurve(),
+            which ships at that grey and can be moved off it. */
         void setOutputSpectrum (const std::vector<float>& decibels);
 
         /** The four cabinets as the one curve they add up to -- what is actually being
@@ -53,7 +54,7 @@ namespace Celine
 
             Drawn in the interface's own ink rather than in a fifth hue: it is not a
             cabinet, and giving it a colour of its own would put it in the same set as
-            the four it is a sum of. */
+            the four it is a sum of. Theme::blendCurve(), which ships at that ink. */
         void setMixTrace (const std::vector<float>& decibels);
 
     private:

@@ -424,7 +424,7 @@ void PluginEditor::paint (juce::Graphics& g)
     // opening rather than a box.
     g.fillAll (Theme::consoleBackground());
 
-    g.setColour (Theme::chrome());
+    g.setColour (Theme::headerBackground());
     g.fillRect (toolbarBand);
 
     // Both marks are drawn off their ink rather than their viewBox. Artwork is rarely
@@ -533,12 +533,12 @@ void PluginEditor::applyColours()
     logo = Assets::drawable ("logo.svg");
 
     if (logo != nullptr)
-        Assets::tint (*logo, Theme::text());
+        Assets::tint (*logo, Theme::headerText());
 
     wordmark = Assets::drawable (ProductInfo::wordmarkAsset, Assets::IfMissing::returnNull);
 
     if (wordmark != nullptr)
-        Assets::tint (*wordmark, Theme::text());
+        Assets::tint (*wordmark, Theme::headerText());
 
     // Here rather than in the constructor: the wordmark is loaded above, so asking
     // earlier always answered null and left the fallback text showing *behind* the
@@ -549,7 +549,7 @@ void PluginEditor::applyColours()
     // like any other, and this one is the whole of what "bypassed" looks like.
     bypassButton.setActiveColour (Theme::danger());
 
-    wordmarkText.setColour (juce::Label::textColourId, Theme::text());
+    wordmarkText.setColour (juce::Label::textColourId, Theme::headerText());
 }
 
 void PluginEditor::changeListenerCallback (juce::ChangeBroadcaster*)

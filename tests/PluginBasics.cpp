@@ -230,11 +230,11 @@ TEST_CASE ("The palette is the palette, not a default-constructed Colour", "[ui]
     // this one, and whichever link order put them first got an opaque black.
     using namespace Celine;
 
-    for (const auto colour : { Theme::accent(), Theme::accentAlt(), Theme::text(),
+    for (const auto colour : { Theme::accent(), Theme::handle(), Theme::text(),
                                Theme::background(), Theme::chrome() })
         CHECK (colour != juce::Colour());
 
-    CHECK (Theme::accent() != Theme::accentAlt());
+    CHECK (Theme::accent() != Theme::handle());
     CHECK (Theme::text() != Theme::background());
 }
 

@@ -125,7 +125,7 @@ void LibraryPanel::applyColours()
 
     title.setColour (juce::Label::textColourId, Theme::text());
 
-    search.setColour (juce::TextEditor::backgroundColourId, Theme::background());
+    search.setColour (juce::TextEditor::backgroundColourId, Theme::field());
     search.setColour (juce::TextEditor::textColourId, Theme::text());
     search.setColour (juce::TextEditor::highlightColourId, Theme::accent().withAlpha (0.4f));
 
@@ -410,15 +410,15 @@ void LibraryPanel::paint (juce::Graphics& g)
 {
     const auto full = getLocalBounds().toFloat();
 
-    // The header, in the house chrome the toolbar above it wears, rounded at the top
-    // the way the graph's tabs are so the two read as one row across the window.
+    // The header, in the same band the graph's tabs sit in and rounded at the top the
+    // way they are, so the two read as one row across the window.
     juce::Path header;
     header.addRoundedRectangle (full.getX(), full.getY(),
                                 full.getWidth(), (float) headerHeight,
                                 Theme::cornerRadius, Theme::cornerRadius,
                                 true, true, false, false);
 
-    g.setColour (Theme::chrome());
+    g.setColour (Theme::tabInactive());
     g.fillPath (header);
 
     auto area = full.withTrimmedTop ((float) headerHeight);

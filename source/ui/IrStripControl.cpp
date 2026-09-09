@@ -192,6 +192,11 @@ void IrStripControl::applyColours()
     // action here, and colouring it apart from the rest said it was the exceptional one.
     loadButton.setColour (juce::TextButton::buttonColourId, Theme::surface());
 
+    // Explicitly chosen, so explicitly handed back on every theme change: an override
+    // set once in the constructor is a snapshot, and this one was the reason Discard
+    // stayed the colour it was born in while the rest of the strip followed.
+    clearButton.setActiveColour (Theme::discard());
+
     for (auto* knob : { &alignKnob, &panKnob })
         knob->getSlider().setColour (juce::Slider::rotarySliderFillColourId, colour());
 

@@ -127,7 +127,7 @@ void MultiWaveformDisplay::drawTimeAxis (juce::Graphics& g) const
         g.setColour (Theme::grid().withAlpha (0.28f));
         g.drawVerticalLine ((int) x, plot.getY(), plot.getBottom());
 
-        g.setColour (Theme::comment());
+        g.setColour (Theme::graphText());
         g.drawText (juce::String (ms, ms < 10.0 && step < 1.0 ? 1 : 0),
                     juce::Rectangle<float> (x - 22.0f, plot.getBottom() + 4.0f, 44.0f, 14.0f).toNearestInt(),
                     juce::Justification::centred, false);
@@ -137,7 +137,7 @@ void MultiWaveformDisplay::drawTimeAxis (juce::Graphics& g) const
     g.setColour (Theme::grid().withAlpha (0.5f));
     g.drawHorizontalLine ((int) plot.getCentreY(), plot.getX(), plot.getRight());
 
-    g.setColour (Theme::comment());
+    g.setColour (Theme::graphText());
     g.drawText ("ms", juce::Rectangle<float> (2.0f, plot.getBottom() + 4.0f, PlotGeometry::axisLeft, 14.0f).toNearestInt(),
                 juce::Justification::centredLeft, false);
 }

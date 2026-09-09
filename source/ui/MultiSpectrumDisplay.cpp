@@ -46,7 +46,7 @@ juce::Rectangle<float> MultiSpectrumDisplay::plotArea() const
 void MultiSpectrumDisplay::setMixTrace (const std::vector<float>& decibels)
 {
     mix.decibels = decibels;
-    mix.colour = Theme::text();
+    mix.colour = Theme::blendCurve();
     mix.visible = decibels.size() >= 2;
 
     repaint();
@@ -103,7 +103,7 @@ void MultiSpectrumDisplay::drawOutput (juce::Graphics& g) const
 
     // A solid it fills up to rather than a line it draws. The four cabinets are lines;
     // making this one too would put five lines on a graph meant to compare four.
-    g.setColour (Theme::comment().withAlpha (0.35f));
+    g.setColour (Theme::outputCurve().withAlpha (0.35f));
     g.fillPath (filled);
 }
 
@@ -129,7 +129,7 @@ void MultiSpectrumDisplay::drawGrid (juce::Graphics& g) const
         if (! labelled)
             continue;
 
-        g.setColour (Theme::comment());
+        g.setColour (Theme::graphText());
         g.drawText (PlotGeometry::label (hz),
                     juce::Rectangle<float> (x - 20.0f, plot.getBottom() + 4.0f, 40.0f, 14.0f).toNearestInt(),
                     juce::Justification::centred, false);
@@ -147,13 +147,13 @@ void MultiSpectrumDisplay::drawGrid (juce::Graphics& g) const
         g.setColour (Theme::grid().withAlpha (division == 0 ? 0.5f : 0.22f));
         g.drawHorizontalLine ((int) y, plot.getX(), plot.getRight());
 
-        g.setColour (Theme::comment());
+        g.setColour (Theme::graphText());
         g.drawText (juce::String (juce::roundToInt (db)),
                     juce::Rectangle<float> (0.0f, y - 7.0f, PlotGeometry::axisLeft - 6.0f, 14.0f).toNearestInt(),
                     juce::Justification::centredRight, false);
     }
 
-    g.setColour (Theme::comment());
+    g.setColour (Theme::graphText());
     g.drawText ("dBFS", juce::Rectangle<float> (2.0f, plot.getBottom() + 4.0f, PlotGeometry::axisLeft, 14.0f).toNearestInt(),
                 juce::Justification::centredLeft, false);
 }

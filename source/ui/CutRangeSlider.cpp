@@ -152,7 +152,7 @@ void CutRangeSlider::paint (juce::Graphics& g)
     {
         const auto bounds = handleBounds (handle);
 
-        g.setColour (Theme::panel());
+        g.setColour (Theme::handle());
         g.fillRoundedRectangle (bounds, bounds.getWidth() * 0.5f);
     }
 }
