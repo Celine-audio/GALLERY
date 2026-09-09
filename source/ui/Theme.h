@@ -19,6 +19,11 @@ namespace Celine
         panels you reach into are near-white. A new widget has to know which side of
         that line it sits on, because the text colour flips with it.
 
+        Only the dark half is here. A plugin that actually puts a light panel in front
+        of you declares its ground and its ink itself -- see PluginThemeRoles.h -- for
+        the same reason nothing else here is offered to a window that cannot paint with
+        it. The two-tone rule is the house's; the second tone is not always present.
+
         **Every one of these is a lookup, not a constant.** What they answer is whatever
         the theme in force says -- see ThemePalette.h. Two consequences worth knowing
         before writing a control:
@@ -152,19 +157,12 @@ namespace Celine
             the same value is not the same as their being one colour. */
         inline juce::Colour textDisabled() { return colour (Role::textDisabled); }
 
-        /** On the light panels, where the above would be invisible. */
-        inline juce::Colour textOnPanel() { return colour (Role::textOnPanel); }
-
         //======================================================================
         // Panels.
 
         /** The dark ground a popup is built on -- the About sheet, the Theme window.
             Named for the chrome it matches rather than for the header, which has had
-            its own colour since the band and the popups stopped having to agree.
-
-            The house's other panel ground, the near-white one, is not here: this plugin
-            has no light half. The four strips and the graph are all dark, and the only
-            near-white things in the window are the knob caps -- which are handle(). */
+            its own colour since the band and the popups stopped having to agree. */
         inline juce::Colour chrome() { return colour (Role::chrome); }
 
         //======================================================================

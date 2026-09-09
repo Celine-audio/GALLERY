@@ -56,7 +56,7 @@
     X (headerBackground,  "Header band",         "Header",   0xff3b334b)                \
     X (headerText,        "Logo and wordmark",   "Header",   0xfff9fbff)                \
                                                                                         \
-    X (graphText,         "Labels",              "Graph",    0xff888791)                \
+    X (graphText,         "Labels",              "Graph",    0xffb5b3c4)                \
     X (grid,              "Grid line",           "Graph",    0xff5c5c5c)                \
                                                                                         \
     X (button,            "Button",              "Controls", 0xff37364a)                \
@@ -72,7 +72,6 @@
     X (textDim,           "Text, idle",          "Text",     0xffd9d9d9)                \
     X (comment,           "Text, secondary",     "Text",     0xff888791)                \
     X (textDisabled,      "Text, disabled",      "Text",     0xff888791)                \
-    X (textOnPanel,       "Text on a panel",     "Text",     0xff28262e)                \
                                                                                         \
     X (chrome,            "Popup ground",        "Panels",   0xff3b334b)                \
                                                                                         \
