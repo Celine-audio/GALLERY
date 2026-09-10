@@ -11,7 +11,10 @@ namespace
 {
     constexpr int gap = 10;
     constexpr int pillHeight = 26;
-    constexpr int pillWidth = 34;
+
+    /** Between the three pills. Tighter than the gap between the two groups, so they
+        read as one control with three positions rather than as three controls. */
+    constexpr int pillGap = 6;
     constexpr int loadHeight = 28;
     constexpr int nameHeight = 15;
     constexpr int knobHeight = 84;
@@ -21,8 +24,6 @@ namespace
 
     /** Air between the state pills and the Load button, whatever else has to give. */
     constexpr int minimumRowGap = 12;
-
-    constexpr int clearWidth = 36;
 
     /** How far in from the strip's edge the cut bar starts -- less than the margin the
         other rows keep, since it is the one control that wants the length. */
@@ -99,6 +100,12 @@ void IrStripControl::buildFileControls()
     // where the artwork matches the other icons in the window.
     clearButton.setActiveColour (Theme::discard());
     clearButton.setTooltip ("Remove the cabinet response.");
+
+    // More air than a toolbar icon gets. This one stands at the end of a row of letter
+    // pills, and an X scaled to the same box as a gear reaches its corners where a
+    // letter does not -- so at the toolbar's inset it came out reading as twice the
+    // weight of the S, M and O beside it.
+    clearButton.setIconInset (0.35f);
     clearButton.onClick = [this]
     {
         processorRef.unloadImpulseResponse (slot);
@@ -151,6 +158,12 @@ void IrStripControl::buildKnobs()
 
     for (auto* knob : { &alignKnob, &panKnob })
     {
+        // The cabinet's colour, told once and kept. Handing the slider the colour here
+        // instead put it back on the accent the first time the theme moved, because
+        // ParameterControl::applyColours() runs again on every theme change and wrote
+        // over it -- and the strip's own applyColours() had already run by then.
+        knob->setFillRole (Theme::irSlotRole (slot));
+
         addAndMakeVisible (knob);
     }
 }
@@ -196,9 +209,6 @@ void IrStripControl::applyColours()
     // set once in the constructor is a snapshot, and this one was the reason Discard
     // stayed the colour it was born in while the rest of the strip followed.
     clearButton.setActiveColour (Theme::discard());
-
-    for (auto* knob : { &alignKnob, &panKnob })
-        knob->getSlider().setColour (juce::Slider::rotarySliderFillColourId, colour());
 
     cutRange.setAccentColour (colour());
 
@@ -479,10 +489,21 @@ void IrStripControl::paint (juce::Graphics& g)
     // The slot's colour, as a rule along the top. Four strips are otherwise identical,
     // and which curve above belongs to which set of knobs is the one thing somebody
     // has to be able to answer without counting across.
-    const auto rule = bounds.reduced (Theme::cornerRadius, 0.0f).withHeight (3.0f).translated (0.0f, 1.0f);
+    //
+    // The full width of the block, clipped to the block's own corners rather than
+    // inset and rounded to a lozenge of its own. A pill sitting short of both edges
+    // reads as a badge laid on the strip; this reads as the strip's top edge, which is
+    // what it is meant to be.
+    {
+        juce::Path rounded;
+        rounded.addRoundedRectangle (bounds, Theme::cornerRadius);
 
-    g.setColour (colour());
-    g.fillRoundedRectangle (rule, 1.5f);
+        juce::Graphics::ScopedSaveState clipped (g);
+        g.reduceClipRegion (rounded);
+
+        g.setColour (colour());
+        g.fillRect (bounds.withHeight (3.0f));
+    }
 
     if (fileHovering)
     {
@@ -495,24 +516,32 @@ void IrStripControl::layOutTopRow (juce::Rectangle<int> row)
 {
     const auto buttonHeight = juce::jmin (pillHeight, row.getHeight());
 
-    // The three state pills take at most half the row and give up the rest, so that
-    // narrowing the window narrows both groups rather than closing the space between
-    // them. A fixed width for the pills left the two groups touching at the smallest
-    // size.
-    const auto pillsWidth = juce::jmin ((row.getWidth() - minimumRowGap) / 2,
-                                        pillWidth * 3 + gap * 2);
-    const auto eachPill = (pillsWidth - gap * 2) / 3;
+    // The three pills and the X are one set of four squares and stay that size at every
+    // window size. They used to share the row proportionally, which meant a letter in a
+    // 34-wide pill at the default size and a letter in a 24-wide one at the smallest --
+    // four buttons that are the same button quietly becoming four different shapes.
+    //
+    // What gives way instead is the air in the middle. It is the only thing in the row
+    // with nothing to say about its own width, so it is the only thing that can be
+    // shortened without something else looking wrong.
+    // Square, off the row's own height, so they are the same shape at every window
+    // size rather than the same number of pixels. The X at the far end is the fourth
+    // of the set and takes the same side.
+    const auto side = buttonHeight;
+    const auto pillsWidth = side * 3 + pillGap * 2;
 
-    auto pills = row.removeFromLeft (pillsWidth).withSizeKeepingCentre (pillsWidth, buttonHeight);
+    auto pills = row.removeFromLeft (juce::jmin (pillsWidth, row.getWidth()))
+                    .withSizeKeepingCentre (pillsWidth, buttonHeight);
 
-    soloButton.setBounds (pills.removeFromLeft (eachPill));
-    pills.removeFromLeft (gap);
-    muteButton.setBounds (pills.removeFromLeft (eachPill));
-    pills.removeFromLeft (gap);
-    phaseButton.setBounds (pills.removeFromLeft (eachPill));
+    soloButton.setBounds (pills.removeFromLeft (side));
+    pills.removeFromLeft (pillGap);
+    muteButton.setBounds (pills.removeFromLeft (side));
+    pills.removeFromLeft (pillGap);
+    phaseButton.setBounds (pills.removeFromLeft (side));
 
     // The air between the two groups, taken before Load can claim it rather than left
-    // over afterwards.
+    // over afterwards. It is what shrinks, down to the point where the row is out of
+    // room and Load starts giving way too.
     row.removeFromLeft (minimumRowGap);
 
     // Load and its X take the rest, up to a width past which Load stops looking like a
@@ -520,11 +549,12 @@ void IrStripControl::layOutTopRow (juce::Rectangle<int> row)
     // removeFrom mutates what it is called on, so asking `row` for its width a second
     // time in the same expression asks the remainder, and both buttons came out zero
     // pixels wide.
-    const auto rightWidth = juce::jmin (row.getWidth(), 170 + clearWidth + 4);
+    const auto rightWidth = juce::jmax (0, juce::jmin (row.getWidth(), 170 + side + 4));
 
     auto right = row.removeFromRight (rightWidth).withSizeKeepingCentre (rightWidth, buttonHeight);
 
-    clearButton.setBounds (right.removeFromRight (juce::jmin (clearWidth, right.getWidth() / 3)));
+    // The X is a pill wearing a glyph instead of a letter, so it is a pill's size.
+    clearButton.setBounds (right.removeFromRight (juce::jmin (side, right.getWidth())));
     right.removeFromRight (4);
 
     loadButton.setBounds (right);

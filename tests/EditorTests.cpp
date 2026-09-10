@@ -385,3 +385,35 @@ TEST_CASE ("Nothing in a strip is laid out on top of anything else", "[ui][layou
             }
     }
 }
+
+TEST_CASE ("A knob keeps the colour it was given through a theme change", "[ui]")
+{
+    // The strips hand their knobs the cabinet's colour, and for a while they handed it
+    // over as a *colour*. That worked until the first theme change, which is when the
+    // window repaints and every ParameterControl re-runs applyColours() -- putting the
+    // arc back on the plugin's accent and losing which cabinet the knob belonged to.
+    //
+    // The strip's own applyColours() had already run by then: the editor applies its
+    // colours first and *then* sends lookAndFeelChanged down the tree, so the child
+    // always got the last word. Holding the role rather than the colour is what fixes
+    // that, and this is the assertion that says so.
+    using namespace Celine;
+
+    const struct Restore { ~Restore() { Theme::palette().reset(); } } restore;
+
+    PluginProcessor plugin;
+    KnobControl knob { plugin.getAPVTS(), ParamID::align[1], "Align" };
+
+    knob.setFillRole (Theme::irSlotRole (1));
+
+    auto& slider = knob.getSlider();
+
+    REQUIRE (slider.findColour (juce::Slider::rotarySliderFillColourId) == Theme::irRed());
+
+    // Somewhere else in the window moves a colour, and every child is told.
+    Theme::palette().set (Theme::Role::irRed, juce::Colour (0xff123456));
+    knob.sendLookAndFeelChange();
+
+    CHECK (slider.findColour (juce::Slider::rotarySliderFillColourId) == juce::Colour (0xff123456));
+    CHECK (slider.findColour (juce::Slider::rotarySliderFillColourId) != Theme::accent());
+}

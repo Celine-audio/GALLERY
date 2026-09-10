@@ -123,7 +123,7 @@ namespace Celine
 
         juce::ListBox list { "Cabinets", this };
 
-        IconButton save { "Export the blend as a stereo response", "download-solid-full.svg" };
+        IconButton save { "Export the blend as a stereo response", "floppy-disk-solid-full.svg" };
         IconButton browse { "Choose a folder of responses", "folder-open-solid-full.svg" };
 
         std::unique_ptr<juce::FileChooser> chooser;

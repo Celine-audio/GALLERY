@@ -25,17 +25,23 @@
 
         /** Slot 0 to 3, in the order they appear across the window. Out of range answers
             gold rather than asserting: a wrong hue is a better failure than a missing
-            trace. */
-        inline juce::Colour irSlot (int index)
+            trace.
+
+            The role rather than the colour, for anything that has to *keep* it: a
+            control handed the colour has a snapshot, and applyColours() will paint over
+            it on the next theme change. */
+        inline Role irSlotRole (int index)
         {
             switch (index)
             {
-                case 0:  return irTeal();
-                case 1:  return irRed();
-                case 2:  return irPurple();
-                default: return irGold();
+                case 0:  return Role::irTeal;
+                case 1:  return Role::irRed;
+                case 2:  return Role::irPurple;
+                default: return Role::irGold;
             }
         }
+
+        inline juce::Colour irSlot (int index) { return colour (irSlotRole (index)); }
 
         //======================================================================
         // The two things on the graph that are not cabinets. Both ship in the

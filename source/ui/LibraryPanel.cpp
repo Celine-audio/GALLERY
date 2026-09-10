@@ -120,8 +120,9 @@ void LibraryPanel::applyColours()
     // a panel of their own that wears it. Set here rather than at construction: an icon
     // colour handed over once is a snapshot like any other, and these were the last two
     // in the window that a theme change could not reach.
-    save.setIconColour (Theme::accent());
-    browse.setIconColour (Theme::accent());
+    // No override: both take headerText(), the white every other mark in the chrome
+    // wears. They were the accent, which made two ordinary actions the loudest thing
+    // in a panel whose job is to list files.
 
     title.setColour (juce::Label::textColourId, Theme::text());
 
