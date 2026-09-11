@@ -203,7 +203,12 @@ void IrStripControl::applyColours()
 {
     // The same slate every other button in the window wears: Load is the ordinary
     // action here, and colouring it apart from the rest said it was the exceptional one.
-    loadButton.setColour (juce::TextButton::buttonColourId, Theme::surface());
+    //
+    // button(), not surface(). The two ship at one value, so for a long time it made no
+    // difference which was named -- until a theme moved them apart and the strip came
+    // out in two colours, with the dropdowns and the X on one and Load, the pills and
+    // the resolution button on the other. A thing you press is a button.
+    loadButton.setColour (juce::TextButton::buttonColourId, Theme::button());
 
     // Explicitly chosen, so explicitly handed back on every theme change: an override
     // set once in the constructor is a snapshot, and this one was the reason Discard
@@ -279,7 +284,7 @@ void IrStripControl::refresh()
         // simply more of the same -- it is past a second of response, which is a reverb
         // rather than a cabinet and costs the convolution accordingly.
         resolutionButton.setColour (juce::TextButton::buttonColourId,
-                                    tier == 0 ? Theme::surface()
+                                    tier == 0 ? Theme::button()
                                   : tier == 1 ? Theme::accent()
                                               : Theme::ultra());
 
@@ -609,8 +614,16 @@ void IrStripControl::resized()
     const auto slopes = juce::jmin (slopeHeight, juce::roundToInt ((float) rows * 0.17f));
     const auto cut = juce::jmin (cutHeight, juce::roundToInt ((float) rows * 0.15f));
 
-    layOutKnobs (area.removeFromTop (juce::jmin (knobHeight,
-                                                 area.getHeight() - slopes - cut - 4)));
+    // Centred in what is left rather than taken off the top of it. The knobs are capped
+    // at a height, so on a tall strip there is room to spare -- and taking their share
+    // from the top put every pixel of it in one place, as a hole between the knobs and
+    // the cut bar that grew as the window did. Centring spends it above and below in
+    // equal parts, which is the spacing the rest of the strip is drawn on.
+    auto middle = area;
+    middle.removeFromBottom (slopes + cut + 4);
+
+    layOutKnobs (middle.withSizeKeepingCentre (middle.getWidth(),
+                                               juce::jmin (knobHeight, middle.getHeight())));
 
     auto slopeRow = area.removeFromBottom (slopes);
     lowSlope.setBounds (slopeRow.removeFromLeft (juce::jmin (slopeWidth, slopeRow.getWidth() / 2)));

@@ -76,7 +76,7 @@ void AnalyserGraph::applyColours()
 {
     for (auto* button : { &zoomButton, &outputButton, &splitButton })
     {
-        button->setColour (juce::TextButton::buttonColourId, Theme::surface());
+        button->setColour (juce::TextButton::buttonColourId, Theme::button());
         button->setColour (juce::TextButton::buttonOnColourId, Theme::accent());
     }
 }

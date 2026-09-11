@@ -51,12 +51,9 @@ namespace Celine
                                             juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f);
             const auto on = getToggleState();
 
-            auto fill = on ? Theme::colour (lit) : Theme::surface();
+            auto fill = on ? Theme::colour (lit) : Theme::button();
 
-            if (down || highlighted)
-                fill = fill.overlaidWith (Theme::text().withAlpha (down ? 0.16f : 0.08f));
-
-            g.setColour (fill);
+            g.setColour (Theme::underPointer (fill, highlighted, down));
             g.fillRoundedRectangle (bounds, radius);
 
             // No rule around it. An unlit pill is told from its ground by being a
