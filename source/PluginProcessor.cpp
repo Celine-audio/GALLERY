@@ -65,7 +65,15 @@ void PluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     // input comb-filtered against itself; the slower half arrives after the cabinets
     // have gone.
     wetMix.reset (sampleRate, 0.05);
-    wetMix.setCurrentAndTargetValue (0.0f);
+
+    // Where the crossfade already stands, not zero -- the same trap the trim above is
+    // written to avoid, one variable over. A host calls prepareToPlay on every
+    // transport start and every change of rate or buffer size, and starting the ramp
+    // at zero with cabinets loaded plays 50 ms of the dry signal before they arrive.
+    // Measured: the first block after a re-prepare came out at full scale against a
+    // settled 0.25, which on a guitar DI is the unprocessed attack of whatever note
+    // the transport started on.
+    wetMix.setCurrentAndTargetValue (measureBlend().anyLoaded ? 1.0f : 0.0f);
 
     // Exponential rather than cumulative: a live picture of what is coming out now,
     // so a frame from ten seconds ago should have stopped counting. Slow, though -- at

@@ -74,3 +74,61 @@ TEST_CASE ("A file that has gone missing leaves its slot empty, not broken",
     for (int i = 0; i < blockSize; ++i)
         REQUIRE (std::isfinite (buffer.getSample (0, i)));
 }
+
+TEST_CASE ("Re-preparing does not play the dry signal first", "[processor][state]")
+{
+    // A host calls prepareToPlay on every transport start and every change of rate or
+    // buffer size -- with whatever is loaded still loaded. The wet crossfade was snapped
+    // to zero there, so the first 50 ms after every play was the dry signal fading out
+    // as the cabinets faded in: measured at full scale against a settled 0.25, which on
+    // a guitar DI is the unprocessed attack of whatever note the transport started on.
+    //
+    // The trim beside it was already written to avoid exactly this. This is the same
+    // trap, one variable over.
+    Cabinets::FourCabinets fixture;
+    fixture.load (4);
+
+    const auto settled = Cabinets::impulseThrough (fixture.plugin);
+    const auto settledPeak = settled.getMagnitude (0, 0, settled.getNumSamples());
+
+    REQUIRE (settledPeak > 0.0f);
+
+    fixture.plugin.prepareToPlay (Cabinets::rate, Cabinets::blockSize);
+
+    juce::AudioBuffer<float> buffer (2, Cabinets::blockSize);
+    juce::MidiBuffer midi;
+
+    buffer.clear();
+    buffer.setSample (0, 0, 1.0f);
+    buffer.setSample (1, 0, 1.0f);
+
+    fixture.plugin.processBlock (buffer, midi);
+
+    const auto firstPeak = buffer.getMagnitude (0, 0, buffer.getNumSamples());
+
+    INFO ("settled " << settledPeak << ", first block after re-prepare " << firstPeak);
+
+    // The cabinets, not the impulse that went in. A tenth of a decibel of slack for the
+    // ramps that legitimately do restart here.
+    CHECK (firstPeak < settledPeak * 1.05f);
+}
+
+TEST_CASE ("Re-preparing with nothing loaded still passes the signal", "[processor][state]")
+{
+    // The other half of the same rule: an empty plugin is a wire, and snapping the
+    // crossfade the other way would mute the track on every transport start.
+    Cabinets::FourCabinets fixture;
+
+    fixture.plugin.prepareToPlay (Cabinets::rate, Cabinets::blockSize);
+
+    juce::AudioBuffer<float> buffer (2, Cabinets::blockSize);
+    juce::MidiBuffer midi;
+
+    buffer.clear();
+    buffer.setSample (0, 0, 1.0f);
+    buffer.setSample (1, 0, 1.0f);
+
+    fixture.plugin.processBlock (buffer, midi);
+
+    CHECK (buffer.getMagnitude (0, 0, buffer.getNumSamples()) > 0.9f);
+}
