@@ -204,11 +204,18 @@ void IrStripControl::applyColours()
     // The same slate every other button in the window wears: Load is the ordinary
     // action here, and colouring it apart from the rest said it was the exceptional one.
     //
-    // button(), not surface(). The two ship at one value, so for a long time it made no
-    // difference which was named -- until a theme moved them apart and the strip came
-    // out in two colours, with the dropdowns and the X on one and Load, the pills and
-    // the resolution button on the other. A thing you press is a button.
-    loadButton.setColour (juce::TextButton::buttonColourId, Theme::button());
+    // stripButton(), which is every button standing on a strip: these, the three pills,
+    // the cross, the resolution button and the two slope boxes. They were the house's
+    // button() and briefly came out in two colours besides -- the dropdowns and the X on
+    // one role, Load and the pills on another. One role now, and it is the strips' own,
+    // so re-slating them leaves the toolbar and the graph where they are.
+    loadButton.setColour (juce::TextButton::buttonColourId, Theme::stripButton());
+
+    clearButton.setFillRole (Theme::Role::stripButton);
+
+    // The slope boxes take the look and feel's default otherwise, which is button().
+    for (auto* box : { &lowSlope, &highSlope })
+        box->setColour (juce::ComboBox::backgroundColourId, Theme::stripButton());
 
     // Explicitly chosen, so explicitly handed back on every theme change: an override
     // set once in the constructor is a snapshot, and this one was the reason Discard
@@ -284,7 +291,7 @@ void IrStripControl::refresh()
         // simply more of the same -- it is past a second of response, which is a reverb
         // rather than a cabinet and costs the convolution accordingly.
         resolutionButton.setColour (juce::TextButton::buttonColourId,
-                                    tier == 0 ? Theme::button()
+                                    tier == 0 ? Theme::stripButton()
                                   : tier == 1 ? Theme::accent()
                                               : Theme::ultra());
 

@@ -62,6 +62,18 @@
         inline juce::Colour outputCurve() { return colour (Role::outputCurve); }
 
         //======================================================================
+
+        /** What a button on a cabinet strip is filled with -- the three state pills, Load,
+            the discard cross, the resolution button and the two slope dropdowns.
+
+            Its own role rather than the house's button(), which it ships equal to. Four
+            strips are most of this window, so the buttons standing on them are most of
+            its buttons -- and re-slating them through the shared role meant the toolbar
+            and the graph came along whether or not that was the intention. Separating
+            them costs one row in the editor and buys the strips their own voice. */
+        inline juce::Colour stripButton() { return colour (Role::stripButton); }
+
+        //======================================================================
         // The three states a slot can be put into, which wear the same colours in every
         // strip. Deliberately not the slot's own colour: solo means the same thing on
         // all four, and colouring it by slot would say the opposite.

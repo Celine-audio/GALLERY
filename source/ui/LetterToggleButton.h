@@ -51,7 +51,7 @@ namespace Celine
                                             juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f);
             const auto on = getToggleState();
 
-            auto fill = on ? Theme::colour (lit) : Theme::button();
+            auto fill = on ? Theme::colour (lit) : Theme::stripButton();
 
             g.setColour (Theme::underPointer (fill, highlighted, down));
             g.fillRoundedRectangle (bounds, radius);

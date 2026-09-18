@@ -26,6 +26,8 @@
     X (blendCurve,  "Blend of the four",   "Curves",     0xfff9fbff)                    \
     X (outputCurve, "What comes out",      "Curves",     0xff888791)                    \
                                                                                         \
+    X (stripButton, "Button on a strip",   "Strips",     0xff37364a)                    \
+                                                                                        \
     X (solo,        "Solo",                "Slot state", 0xffcdc292)                    \
     X (mute,        "Mute",                "Slot state", 0xffcd9292)                    \
     X (phase,       "Polarity",            "Slot state", 0xff6c8b77)                    \
