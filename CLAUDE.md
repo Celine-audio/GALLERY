@@ -84,9 +84,8 @@ runs tests and benchmarks together.
   There was a `SpectralSmoother` here, applying a minimum-phase correction to flatten a
   capture's fine structure. It was removed as not earning its place; it is in the
   history if it is ever wanted back.
-- `source/ui/` — the house kit (`Theme.h`, `Fonts`, `PluginLookAndFeel`, `AboutPanel`,
-  `ParameterControl`, `IconButton`, `EmbeddedAssets`, and the theming engine —
-  `Theme.h`, `ThemeRoles.h`, `ThemePalette`, `ThemePanel`) plus GALLERY's own:
+- `source/ui/` — GALLERY's own interface, and `PluginLookAndFeel`, the seam the house kit
+  is extended through (the kit itself is in `modules/CelineUI`; see "The house kit"):
   `IrStripControl`, `BlendPad`, `AnalyserGraph`, `MultiSpectrumDisplay`,
   `MultiWaveformDisplay`, `CutRangeSlider`, `TabHeader`, `LetterToggleButton`,
   `LibraryPanel`, `PlotGeometry`, and `AnalyserFeed` — which is not a component at all
@@ -95,7 +94,7 @@ runs tests and benchmarks together.
   a host sees it (one file per property it has to hold, over the cabinet fixture in
   `tests/helpers/`); `benchmarks/` — Catch2 benchmarks
 - `assets/` — embedded as BinaryData by `cmake/Assets.cmake`, everything in the folder
-- `JUCE/`, `cmake/`, `modules/clap-juce-extensions` — submodules
+- `JUCE/`, `cmake/`, `modules/clap-juce-extensions`, `modules/CelineUI` — submodules
 
 `SharedCode` is an INTERFACE library linking the source into both the plugin and the
 test targets, which is what keeps them from violating the ODR.
@@ -273,19 +272,19 @@ can be written to and read from a `.celthm` file to be shared.
 
 The shape of it, in four files:
 
-- **`ui/ThemeRoles.h`** — the list, as an X-macro. One entry carries four things that
+- **`CelineUI/ThemeRoles.h`** — the list, as an X-macro. One entry carries four things that
   have to agree: the identifier the code uses, the label the editor shows, the group it
   is edited under, and the value the design ships with. The enum, the info table, the
   file's keys and the editor's rows are all generated from it. A plugin's own colours go
-  in **`PluginThemeRoles.h`** beside it — GALLERY's four cabinets, AURA's three curves —
+  in **`source/PluginThemeRoles.h`** — GALLERY's four cabinets, AURA's three curves —
   and its accessors in **`PluginTheme.h`**, which `Theme.h` includes inside the
   namespace so `Theme::irSlot(2)` reads exactly like `Theme::chrome()`.
-- **`ui/ThemePalette.h/.cpp`** — the colours in force, the `.celthm` reader and writer,
+- **`CelineUI/ThemePalette.h/.cpp`** — the colours in force, the `.celthm` reader and writer,
   and a `ChangeBroadcaster` so a change reaches every open window. One per process, in a
   function-local static: a palette at namespace scope could be read by a look and feel
   constructed before it.
-- **`ui/Theme.h`** — the accessors, each a lookup, each documented with what it is *for*.
-- **`ui/ThemePanel.h/.cpp`** — the editor. Live: a colour changed there reaches the
+- **`CelineUI/Theme.h`** — the accessors, each a lookup, each documented with what it is *for*.
+- **`CelineUI/ThemePanel.h/.cpp`** — the editor. Live: a colour changed there reaches the
   window behind it on the next repaint, so there is no Apply to forget.
 
 **Renaming a role breaks every theme anybody has saved**, because the identifier is the
@@ -319,6 +318,29 @@ Two things a theme change has to do, and both are easy to leave out:
 for, and `sendLookAndFeelChange()` gives every child a chance to do the same. The window
 does both in its `changeListenerCallback`.
 
+## The house kit
+
+The shared interface — the theming engine and its editor, `LookAndFeelBase`, `Fonts`,
+`EmbeddedAssets`, `IconButton`, `AboutPanel`, `ParameterControl` — is not in this
+repository. It is **CelineUI** (github.com/Celine-audio/CelineUI), a submodule at
+`modules/CelineUI` shared by AURA, GALLERY and Céline, and it is included by repository:
+`#include <CelineUI/Theme.h>`. Its README lists what each plugin has to provide —
+`source/ProductInfo.h`, `source/PluginThemeRoles.h`, `source/PluginTheme.h`,
+`source/ui/PluginLookAndFeel.h`, and the fonts and marks in `assets/` — and the rules
+the kit relies on.
+
+- **Don't edit the kit inside `modules/CelineUI`.** A submodule checks out a commit,
+  not a branch, and a change made there belongs to another repository. Edit the
+  shared checkout beside the plugins (`../CelineUI`) and build against it with
+  `-DCELINE_UI_DIR=../CelineUI`; a kit change is a change to every plugin, so try it
+  in all of them before committing it.
+- **Commit the kit first, then move this plugin's submodule to that commit.** CI builds
+  exactly the commit pinned here, and a pin to a kit commit that isn't pushed breaks
+  every CI run and every fresh clone. `git config push.recurseSubmodules check`
+  refuses that push.
+- The kit's own tests, `ThemeTests` and `ThemeReachTests`, live in CelineUI and run in
+  this plugin's suite; `CMakeLists.txt` adds them.
+
 ## House conventions
 
 **Assets are looked up by filename, never by the BinaryData identifier.** JUCE derives
@@ -337,7 +359,7 @@ force. Two consequences, both of which are silent when broken:
   widget insists on being *told* its colours, gather them into an `applyColours()` and
   call it from both the constructor and an override of `lookAndFeelChanged()` — which is
   what the window calls on every child when the theme moves.
-- **A new colour goes in `ui/ThemeRoles.h`** (or the plugin's own `PluginThemeRoles.h`),
+- **A new colour goes in `CelineUI/ThemeRoles.h`** (or the plugin's own `PluginThemeRoles.h`),
   which is the one list the enum, the `.celthm` key, the editor's label and the shipped
   value are all generated from. `Theme.h` is where it is given a name and a reason.
 

@@ -2,7 +2,7 @@
 
 #include "../PluginProcessor.h"
 #include "AnalyserGraph.h"
-#include "Theme.h"
+#include <CelineUI/Theme.h>
 
 #include <cmath>
 

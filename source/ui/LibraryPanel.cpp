@@ -1,8 +1,8 @@
 #include "LibraryPanel.h"
 
-#include "Fonts.h"
+#include <CelineUI/Fonts.h>
 #include "PluginLookAndFeel.h"
-#include "Theme.h"
+#include <CelineUI/Theme.h>
 
 using namespace Celine;
 

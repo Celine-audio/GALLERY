@@ -1,16 +1,16 @@
 #pragma once
 
 #include "PluginProcessor.h"
-#include "ui/AboutPanel.h"
-#include "ui/ThemePanel.h"
+#include <CelineUI/AboutPanel.h>
+#include <CelineUI/ThemePanel.h>
 #include "ui/AnalyserFeed.h"
 #include "ui/AnalyserGraph.h"
 #include "ui/BlendPad.h"
-#include "ui/IconButton.h"
+#include <CelineUI/IconButton.h>
 #include "ui/IrStripControl.h"
 #include "ui/LibraryPanel.h"
 #include "ui/PluginLookAndFeel.h"
-#include "ui/Theme.h"
+#include <CelineUI/Theme.h>
 
 #include <array>
 #include <memory>

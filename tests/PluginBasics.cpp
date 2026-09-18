@@ -3,9 +3,9 @@
 #include <Parameters.h>
 #include <PluginEditor.h>
 #include <PluginProcessor.h>
-#include <ui/AboutPanel.h>
+#include <CelineUI/AboutPanel.h>
 #include <ui/PluginLookAndFeel.h>
-#include <ui/Theme.h>
+#include <CelineUI/Theme.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
