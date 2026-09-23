@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Fonts.h"
-#include "Theme.h"
+#include <CelineUI/Fonts.h>
+#include <CelineUI/Theme.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -62,11 +62,20 @@ namespace Celine
             // Dark ink on a lit pill, light on an unlit one. The three lit colours are
             // pale by design, and text() on any of them is unreadable.
             g.setColour (on ? Theme::onPill() : Theme::textDim());
-            g.setFont (Fonts::bold (juce::jmin (13.0f, bounds.getHeight() * 0.55f)));
 
-            // Lifted by a hair, for the same reason the look and feel lifts its button
-            // text: Jura centres on its cap height, and the eye centres lower.
-            g.drawText (letter, getLocalBounds().translated (0, -1), juce::Justification::centred, false);
+            // Centred by the letter's own outline rather than by the font's line. Centred
+            // on the line, with a hair's lift, S, M and the taller Phi each sat a pixel or
+            // so out, and each differently -- which is what the eye catches in a row of
+            // three.
+            juce::GlyphArrangement glyphs;
+            glyphs.addLineOfText (Fonts::bold (juce::jmin (13.0f, bounds.getHeight() * 0.55f)), letter, 0.0f, 0.0f);
+
+            juce::Path outline;
+            glyphs.createPath (outline);
+
+            const auto centre = outline.getBounds().getCentre();
+            g.fillPath (outline, juce::AffineTransform::translation (bounds.getCentreX() - centre.x,
+                                                                     bounds.getCentreY() - centre.y));
         }
 
     private:

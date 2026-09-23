@@ -9,8 +9,8 @@
     theme editor moved nothing until the window was reopened.
 */
 #include <ui/LetterToggleButton.h>
-#include <ui/Theme.h>
-#include <ui/ThemePalette.h>
+#include <CelineUI/Theme.h>
+#include <CelineUI/ThemePalette.h>
 
 #include <catch2/catch_test_macros.hpp>
 

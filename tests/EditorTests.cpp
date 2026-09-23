@@ -6,7 +6,7 @@
 #include <ui/BlendPad.h>
 #include <ui/IrStripControl.h>
 #include <ui/LibraryPanel.h>
-#include <ui/Theme.h>
+#include <CelineUI/Theme.h>
 
 #include <catch2/catch_test_macros.hpp>
 

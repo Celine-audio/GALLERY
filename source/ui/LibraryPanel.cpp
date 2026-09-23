@@ -1,8 +1,8 @@
 #include "LibraryPanel.h"
 
-#include "Fonts.h"
+#include <CelineUI/Fonts.h>
 #include "PluginLookAndFeel.h"
-#include "Theme.h"
+#include <CelineUI/Theme.h>
 
 using namespace Celine;
 
@@ -90,7 +90,7 @@ LibraryPanel::LibraryPanel()
     // laid out inside the indented box rather than the field. Padding is the left
     // indent's job here, so the vertical one is nothing.
     search.setBorder (juce::BorderSize<int> (0));
-    search.setIndents (10, 0);
+    search.setIndents (28, 0); // room for the magnifier, drawn over the field
     search.onTextChange = [this] { applyFilter(); };
     addAndMakeVisible (search);
 
@@ -275,9 +275,54 @@ void LibraryPanel::applyFilter()
         }
     }
 
+    // Held where it was. Rows are only ever added or taken away under the folder that
+    // changed, so the rows above it -- the one somebody clicked among them -- stay put,
+    // unless the list has become too short to be scrolled that far. Rebuilt without
+    // this, the list could jump away from the folder somebody had just opened.
+    const auto position = list.getViewport()->getViewPosition();
+    const auto keep = selectedFile; // the list's own moves below report back into it
+
     list.updateContent();
+    list.getViewport()->setViewPosition (position);
+
+    // The selection is a row number, so it is put back on the file it was on -- without
+    // scrolling to it -- or taken off.
     list.deselectAllRows();
+
+    for (int row = 0; row < shown.size(); ++row)
+    {
+        if (! shown.getReference (row).isFolder && shown.getReference (row).file == keep)
+        {
+            list.selectRow (row, true);
+            break;
+        }
+    }
+
+    selectedFile = keep;
     repaint();
+}
+
+void LibraryPanel::toggleFolder (const juce::File& directory)
+{
+    // While a search is running it decides what is open, so a click would move a set
+    // nothing on screen is drawn from: the arrow would do nothing now and something
+    // unasked-for once the search was cleared.
+    if (search.getText().isNotEmpty())
+        return;
+
+    const auto path = directory.getFullPathName();
+
+    if (! expanded.contains (path))
+        expanded.add (path);
+    else
+        expanded.removeString (path);
+
+    applyFilter();
+}
+
+int LibraryPanel::getScrollPosition() const
+{
+    return list.getViewport()->getViewPositionY();
 }
 
 void LibraryPanel::chooseFolder()
@@ -385,20 +430,14 @@ void LibraryPanel::listBoxItemClicked (int row, const juce::MouseEvent& event)
     if (event.getNumberOfClicks() > 1)
         return;
 
-    // While a search is running it decides what is open, so a click would move a set
-    // nothing on screen is drawn from: the arrow would do nothing now and something
-    // unasked-for once the search was cleared.
-    if (search.getText().isNotEmpty())
-        return;
+    toggleFolder (entry.file);
+}
 
-    const auto path = entry.file.getFullPathName();
-
-    if (! expanded.contains (path))
-        expanded.add (path);
-    else
-        expanded.removeString (path);
-
-    applyFilter();
+void LibraryPanel::selectedRowsChanged (int lastRowSelected)
+{
+    selectedFile = juce::isPositiveAndBelow (lastRowSelected, shown.size()) && ! shown.getReference (lastRowSelected).isFolder
+                       ? shown.getReference (lastRowSelected).file
+                       : juce::File();
 }
 
 void LibraryPanel::listBoxItemDoubleClicked (int row, const juce::MouseEvent&)
@@ -443,6 +482,18 @@ void LibraryPanel::paint (juce::Graphics& g)
                       : entries.isEmpty()     ? "No responses in this folder"
                                               : "Nothing matches that",
                       empty.toNearestInt(), juce::Justification::centredTop, 3);
+}
+
+void LibraryPanel::paintOverChildren (juce::Graphics& g)
+{
+    // A magnifying glass at the start of the field, which is what says it searches. Drawn
+    // over it rather than in it: a TextEditor paints its whole ground.
+    const auto field = search.getBounds().toFloat();
+    const auto lens = juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ field.getX() + 13.0f, field.getCentreY() - 1.0f });
+
+    g.setColour (Theme::comment());
+    g.drawEllipse (lens, 1.5f);
+    g.drawLine (lens.getRight() - 1.5f, lens.getBottom() - 1.5f, lens.getRight() + 2.5f, lens.getBottom() + 2.5f, 1.6f);
 }
 
 void LibraryPanel::resized()

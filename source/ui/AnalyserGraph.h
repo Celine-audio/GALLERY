@@ -3,7 +3,7 @@
 #include "MultiSpectrumDisplay.h"
 #include "MultiWaveformDisplay.h"
 #include "TabHeader.h"
-#include "Theme.h"
+#include <CelineUI/Theme.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 

@@ -1,8 +1,8 @@
 #include "MultiSpectrumDisplay.h"
 
-#include "Fonts.h"
+#include <CelineUI/Fonts.h>
 #include "PlotGeometry.h"
-#include "Theme.h"
+#include <CelineUI/Theme.h>
 
 using namespace Celine;
 

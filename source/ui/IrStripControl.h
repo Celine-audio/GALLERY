@@ -2,9 +2,9 @@
 
 #include "CutRangeSlider.h"
 #include "../dsp/ImpulseResponse.h"
-#include "IconButton.h"
+#include <CelineUI/IconButton.h>
 #include "LetterToggleButton.h"
-#include "ParameterControl.h"
+#include <CelineUI/ParameterControl.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 

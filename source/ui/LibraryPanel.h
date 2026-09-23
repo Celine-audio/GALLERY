@@ -1,7 +1,7 @@
 #pragma once
 
-#include "IconButton.h"
-#include "Theme.h"
+#include <CelineUI/IconButton.h>
+#include <CelineUI/Theme.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -48,7 +48,15 @@ namespace Celine
             live. */
         void setCanExport (bool);
 
+        /** Opens a folder in the list, or shuts it -- what clicking its row does. The
+            list stays exactly where it is: only the rows under the folder move. */
+        void toggleFolder (const juce::File&);
+
+        /** How far down the list is scrolled, for the tests that check it stays put. */
+        int getScrollPosition() const;
+
         void paint (juce::Graphics&) override;
+        void paintOverChildren (juce::Graphics&) override;
         void resized() override;
 
         /** One band, the same height as the graph's tab row beside it. The name, the
@@ -66,6 +74,7 @@ namespace Celine
         void listBoxItemDoubleClicked (int row, const juce::MouseEvent&) override;
 
         void listBoxItemClicked (int row, const juce::MouseEvent&) override;
+        void selectedRowsChanged (int lastRowSelected) override;
 
         /** Every colour this takes once rather than reading as it draws, gathered so the
             theme can hand them back. JUCE tells a widget its colours rather than asking,
@@ -79,6 +88,10 @@ namespace Celine
         void rescan();
 
         juce::File folder;
+
+        /** The selected file, kept by file rather than by row: a folder opening above it
+            moves its row, and the selection has to move with it. */
+        juce::File selectedFile;
 
         /** One line of the tree: a subfolder to open, or a response to drag.
 
