@@ -417,3 +417,33 @@ TEST_CASE ("A knob keeps the colour it was given through a theme change", "[ui]"
     CHECK (slider.findColour (juce::Slider::rotarySliderFillColourId) == juce::Colour (0xff123456));
     CHECK (slider.findColour (juce::Slider::rotarySliderFillColourId) != Theme::accent());
 }
+
+TEST_CASE ("The bypass button follows a bypass pressed in the host", "[ui]")
+{
+    // The host's bypass is the plugin's own parameter now, so pressing it there has to
+    // light the button here -- otherwise the toolbar says the plugin is on while the
+    // host has switched it out.
+    PluginProcessor plugin;
+    REQUIRE (plugin.getBypassParameter() != nullptr);
+
+    std::unique_ptr<juce::AudioProcessorEditor> editor (plugin.createEditorAndMakeActive());
+    REQUIRE (editor != nullptr);
+
+    Celine::IconButton* bypass = nullptr;
+
+    for (auto* child : editor->getChildren())
+        if (auto* button = dynamic_cast<Celine::IconButton*> (child); button != nullptr && button->getName() == "Bypass")
+            bypass = button;
+
+    REQUIRE (bypass != nullptr);
+    REQUIRE_FALSE (bypass->isActive());
+
+    plugin.getBypassParameter()->setValueNotifyingHost (1.0f);
+    CHECK (bypass->getToggleState());
+    CHECK (bypass->isActive());
+
+    plugin.getBypassParameter()->setValueNotifyingHost (0.0f);
+    CHECK_FALSE (bypass->isActive());
+
+    plugin.editorBeingDeleted (editor.get());
+}

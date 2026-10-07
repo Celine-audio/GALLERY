@@ -198,6 +198,10 @@ private:
     /** Audio thread: pushes the block through the alignment delay. */
     void delay (juce::AudioBuffer<float>&, int numChannels, int numSamples) noexcept;
 
+    /** Audio thread: empties everything downstream of the engine and lands every ramp
+        but the gain where it is set. See `startFresh`. */
+    void startOver() noexcept;
+
     ImpulseResponse response;
     PartitionedConvolver convolver;
 
@@ -210,6 +214,11 @@ private:
         far it had been moved -- which is the one thing this control must not do. */
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Lagrange3rd> alignDelay;
     juce::SmoothedValue<float> alignSamples;
+
+    /** Audio thread only: how many samples are still to come out of a delay line that
+        has just been emptied before anything but silence does. The gain holds its fade
+        until they have -- see process(). */
+    int entranceHold = 0;
 
     double rate = 44100.0;
     int channels = 2;
@@ -233,9 +242,18 @@ private:
     std::atomic<bool> active { false };
 
     /** Set by a rebuild that found the slot idle, cleared by the audio thread when it
-        acts on it. The delay line is downstream of the convolution, so it holds the
-        same frozen past the engine does and has to be emptied with it. */
-    std::atomic<bool> flushDelay { false };
+        acts on it -- which, for a session being opened, is the first block after
+        prepareToPlay, since the state is restored before it.
+
+        Two things follow. The delay line and the cuts are downstream of the
+        convolution, so they hold the same frozen past the engine does and are emptied
+        with it. And every ramp but the gain lands where it is set rather than walking
+        there: a ramp protects a signal being heard through what it moves, and a slot
+        starting from nothing has none. An idle slot's ramps are never advanced, so left
+        to walk, a cut set while the slot was empty swept across the band the moment a
+        cabinet arrived -- and the high cut, which used to be built at 20 Hz, did that on
+        every first load: three hundred times the baseline, twenty-nine milliseconds in. */
+    std::atomic<bool> startFresh { false };
 
     // Ramped rather than applied outright. The gain carries the polarity as its sign,
     // so inverting walks through zero instead of stepping across it -- a fade of a few

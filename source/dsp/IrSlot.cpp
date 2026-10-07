@@ -152,7 +152,7 @@ void IrSlot::rebuild()
     convolver.setImpulseResponse (shapedResponse, wasIdle);
 
     if (wasIdle)
-        flushDelay.store (true);
+        startFresh.store (true);
 
     // Last, once there is something behind it for the audio thread to find.
     active.store (true);
@@ -320,6 +320,27 @@ void IrSlot::delay (juce::AudioBuffer<float>& block, int numChannels, int numSam
     alignSamples.skip (numSamples);
 }
 
+void IrSlot::startOver() noexcept
+{
+    alignDelay.reset();
+    alignSamples.setCurrentAndTargetValue (alignSamples.getTargetValue());
+
+    // Out of a line that has just been emptied, a cabinet pushed back comes out as
+    // silence until its first sample has crossed the delay. A third-order Lagrange
+    // reads from one sample short of the delay, so that is where the silence ends.
+    entranceHold = juce::jmax (0, (int) alignSamples.getCurrentValue() - 1);
+
+    lowCut.settle();
+    highCut.settle();
+
+    panLeft.setCurrentAndTargetValue (panLeft.getTargetValue());
+    panRight.setCurrentAndTargetValue (panRight.getTargetValue());
+
+    // Not the gain. On a load, its fade up from silence is what the slot's entrance
+    // *is* -- the one ramp here with something to protect, since whatever the engine
+    // starts convolving from an emptied history arrives under it.
+}
+
 //==============================================================================
 void IrSlot::setLevels (const Levels& levels) noexcept
 {
@@ -363,11 +384,12 @@ void IrSlot::process (const juce::AudioBuffer<float>& input,
     if (numSamples <= 0 || numChannels <= 0)
         return;
 
-    // Emptied here rather than by the rebuild that asked for it: this line is the audio
-    // thread's, and the message thread resetting it would be writing what this one is
-    // reading.
-    if (flushDelay.exchange (false))
-        alignDelay.reset();
+    // Done here rather than by whatever asked for it: the line, the cuts and the ramps
+    // are the audio thread's, and the message thread resetting them would be writing
+    // what this one is reading. After setLevels, which the caller has just run, so the
+    // ramps land on this block's controls rather than the last ones this slot heard.
+    if (startFresh.exchange (false))
+        startOver();
 
     // An emptied slot goes quiet by fading, not by stopping: dropping out the instant
     // the file is cleared steps the output. Once the fade has landed there is nothing
@@ -401,6 +423,36 @@ void IrSlot::process (const juce::AudioBuffer<float>& input,
 
     delay (block, numChannels, numSamples);
 
+    // The entrance fade waits out the silence a just-emptied line gives before the
+    // cabinet has crossed it. Started at once, the gain would be a sixth of the way up
+    // by the time a cabinet pushed back 3 ms arrived, and it would step in rather than
+    // fade -- measured at seven to fifty times the baseline. Only samples that really
+    // are zero are passed over, so nothing heard is dropped even if alignment moves
+    // while this runs.
+    auto first = 0;
+
+    if (entranceHold > 0)
+    {
+        const auto silentAt = [&block, numChannels] (int index)
+        {
+            for (int channel = 0; channel < numChannels; ++channel)
+                if (! juce::exactlyEqual (block.getSample (channel, index), 0.0f))
+                    return false;
+
+            return true;
+        };
+
+        while (first < numSamples && entranceHold > 0 && silentAt (first))
+        {
+            ++first;
+            --entranceHold;
+        }
+
+        // Arrived, whatever the count said.
+        if (first < numSamples)
+            entranceHold = 0;
+    }
+
     // Mono or stereo, guaranteed by isBusesLayoutSupported. Pan has no meaning on one
     // channel and no agreed meaning on more than two, so both are handled by not
     // offering it rather than by inventing a law for them.
@@ -411,7 +463,7 @@ void IrSlot::process (const juce::AudioBuffer<float>& input,
         auto* samples = block.getWritePointer (0);
         auto* out = output.getWritePointer (0);
 
-        for (int i = 0; i < numSamples; ++i)
+        for (int i = first; i < numSamples; ++i)
             out[i] += samples[i] * gain.getNextValue();
 
         panLeft.skip (numSamples);
@@ -424,7 +476,10 @@ void IrSlot::process (const juce::AudioBuffer<float>& input,
     auto* outLeft = output.getWritePointer (0);
     auto* outRight = output.getWritePointer (1);
 
-    for (int i = 0; i < numSamples; ++i)
+    panLeft.skip (first);
+    panRight.skip (first);
+
+    for (int i = first; i < numSamples; ++i)
     {
         const auto g = gain.getNextValue();
 

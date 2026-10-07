@@ -47,6 +47,12 @@ public:
 
     const juce::String getName() const override { return JucePlugin_Name; }
 
+    /** The plugin's own Bypass, handed to the host as its bypass. Without it the host
+        made a second one of its own, which neither moved the button on the toolbar nor
+        went through the crossfade -- two switches that could disagree about whether the
+        plugin was on. With it there is one bypass, wherever it is pressed from. */
+    juce::AudioProcessorParameter* getBypassParameter() const override { return apvts.getParameter (ParamID::bypass); }
+
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -182,6 +188,14 @@ private:
 
     Blend measureBlend() const noexcept;
 
+    /** Audio thread: everything the plugin does to the signal, trim included -- what
+        comes out when it is not bypassed. */
+    void runCabinets (juce::AudioBuffer<float>&, int numChannels, int numSamples) noexcept;
+
+    /** Audio thread: blends what runCabinets made with the copy of the input taken
+        before it, towards the input while bypassed and away from it while not. */
+    void mixBypass (juce::AudioBuffer<float>&, int numChannels, int numSamples) noexcept;
+
     /** Audio thread: runs each slot and adds it to `summed`. */
     void sumSlots (const juce::AudioBuffer<float>& dry, juce::AudioBuffer<float>& summed,
                    const Blend&) noexcept;
@@ -222,10 +236,18 @@ private:
         between two different signals. */
     juce::SmoothedValue<float> wetMix;
 
+    /** How much of the output is the plugin rather than the input, 1 when it is on and
+        0 when it is bypassed. AURA's figure, so the same switch feels the same in both:
+        long enough not to be heard as a click, short enough that it still feels like
+        pressing a switch. */
+    static constexpr double bypassFadeSeconds = 0.03;
+    juce::SmoothedValue<float> bypassMix;
+
     // The audio thread's working buffers, sized in prepareToPlay. One scratch shared
     // between the slots rather than one each: they run in sequence, so the second has
-    // no use for what the first left behind.
-    juce::AudioBuffer<float> scratch, wet;
+    // no use for what the first left behind. `bypassDry` is the input as it arrived,
+    // kept only while bypass is on or moving.
+    juce::AudioBuffer<float> scratch, wet, bypassDry;
 
     juce::dsp::Gain<float> outputGain;
 

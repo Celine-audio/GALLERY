@@ -58,7 +58,13 @@ void PluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 
     scratch.setSize (numChannels, samplesPerBlock, false, true, true);
     wet.setSize (numChannels, samplesPerBlock, false, true, true);
+    bypassDry.setSize (numChannels, samplesPerBlock, false, true, true);
     analysisMix.setSize (1, samplesPerBlock, false, true, true);
+
+    // Landed where the bypass already stands, for the same reason as the crossfade
+    // below: a session opened bypassed should not fade out of cabinets it never played.
+    bypassMix.reset (sampleRate, bypassFadeSeconds);
+    bypassMix.setCurrentAndTargetValue (bypassParameter->load() > 0.5f ? 0.0f : 1.0f);
 
     // Longer than a slot's own gain ramp on purpose. Emptying the last cabinet fades
     // the cabinets out and the dry signal in, and the two overlapping would be the
@@ -200,14 +206,36 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     // Passing it through neither allocates nor pretends the extra samples were done.
     const auto usable = numChannels > 0 && numSamples <= scratch.getNumSamples();
 
-    if (bypassed || ! usable)
+    if (! usable)
     {
-        // Bypass takes the trim with it, so A/B-ing compares like with like.
         applyOutputGain (buffer, bypassed ? 0.0f : outputGainParameter->load());
         measureOutput (buffer, juce::jmax (0, numChannels), numSamples);
         return;
     }
 
+    bypassMix.setTargetValue (bypassed ? 0.0f : 1.0f);
+
+    // Settled on the plugin, none of the input is heard, so there is nothing to keep.
+    const auto blendingDry = bypassed || bypassMix.isSmoothing();
+
+    if (blendingDry)
+        for (int channel = 0; channel < numChannels; ++channel)
+            bypassDry.copyFrom (channel, 0, buffer, channel, 0, numSamples);
+
+    // Run whatever the bypass says. A cabinet that is not fed while bypassed keeps the
+    // input it last heard, and on the way back in convolves it: the past, at full
+    // scale, over whatever is playing now. That costs a bypassed plugin what a running
+    // one costs, which is the price of coming back without a ghost.
+    runCabinets (buffer, numChannels, numSamples);
+
+    if (blendingDry)
+        mixBypass (buffer, numChannels, numSamples);
+
+    measureOutput (buffer, numChannels, numSamples);
+}
+
+void PluginProcessor::runCabinets (juce::AudioBuffer<float>& buffer, int numChannels, int numSamples) noexcept
+{
     const auto blend = measureBlend();
 
     // Loaded, not audible: four muted cabinets are still four cabinets, and the answer
@@ -217,7 +245,6 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     if (! blend.anyLoaded && ! wetMix.isSmoothing() && wetMix.getCurrentValue() <= 0.0f)
     {
         applyOutputGain (buffer, outputGainParameter->load());
-        measureOutput (buffer, numChannels, numSamples);
         return;
     }
 
@@ -227,8 +254,41 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
     sumSlots (dry, summed, blend);
     mixWetIntoDry (buffer, summed, numChannels, numSamples);
 
+    // The trim stays where it is set, bypassed or not: bypass takes it away by fading
+    // out the signal it is part of. Ramping it to unity instead took fifty milliseconds
+    // while the cabinets left in one sample, and for those fifty you heard the one
+    // without the other.
     applyOutputGain (buffer, outputGainParameter->load());
-    measureOutput (buffer, numChannels, numSamples);
+}
+
+void PluginProcessor::mixBypass (juce::AudioBuffer<float>& buffer, int numChannels, int numSamples) noexcept
+{
+    if (! bypassMix.isSmoothing())
+    {
+        // Landed on the bypass: the input, untouched.
+        for (int channel = 0; channel < numChannels; ++channel)
+            buffer.copyFrom (channel, 0, bypassDry, channel, 0, numSamples);
+
+        return;
+    }
+
+    // The same crossfade as the cabinets over the dry signal, one level up: a copy of
+    // the ramp per channel so every channel walks the same one, and the real one is
+    // advanced once, below.
+    for (int channel = 0; channel < numChannels; ++channel)
+    {
+        auto* out = buffer.getWritePointer (channel);
+        const auto* in = bypassDry.getReadPointer (channel);
+        auto mix = bypassMix;
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto amount = mix.getNextValue();
+            out[i] = out[i] * amount + in[i] * (1.0f - amount);
+        }
+    }
+
+    bypassMix.skip (numSamples);
 }
 
 void PluginProcessor::sumSlots (const juce::AudioBuffer<float>& dry,

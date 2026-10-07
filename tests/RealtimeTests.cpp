@@ -216,6 +216,27 @@ TEST_CASE ("The audio thread never reaches the allocator", "[realtime]")
         run (64);
         CHECK (watch.count() == 0);
     }
+
+    SECTION ("while the bypass is fading")
+    {
+        fixture.load (4);
+        run (8);
+
+        // A block is shorter than the 30 ms fade, so toggling every block keeps it
+        // moving -- the one state where the copy of the input is kept and blended per
+        // sample with four cabinets running under it.
+        auto* bypass = fixture.plugin.getAPVTS().getRawParameterValue (ParamID::bypass);
+
+        const Watch watch;
+
+        for (int i = 0; i < 32; ++i)
+        {
+            bypass->store ((float) (i % 2));
+            run (1);
+        }
+
+        CHECK (watch.count() == 0);
+    }
 }
 
 //==============================================================================

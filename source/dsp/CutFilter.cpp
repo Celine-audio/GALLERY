@@ -89,6 +89,17 @@ void CutFilter::setTarget (float frequencyHz, int slopeDbPerOctave) noexcept
         ramp.setTargetValue (clamped);
 }
 
+void CutFilter::settle() noexcept
+{
+    frequency = ramp.getTargetValue();
+    ramp.setCurrentAndTargetValue (frequency);
+
+    design();
+    engagement.setCurrentAndTargetValue (engaged ? 1.0f : 0.0f);
+
+    reset();
+}
+
 void CutFilter::design() noexcept
 {
     // Off at the end of its travel. The two ends mean opposite things -- a low cut is

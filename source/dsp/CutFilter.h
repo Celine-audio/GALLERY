@@ -53,7 +53,15 @@ public:
     static constexpr int maximumSections = (maximumOrder + 1) / 2;
     static constexpr int maximumChannels = 2;
 
-    explicit CutFilter (Kind kindToUse) noexcept : kind (kindToUse) {}
+    /** Built parked at the end of its travel, switched off -- which is a different end
+        for each kind. A high cut that started where a low cut does would be born a
+        20 Hz low-pass, and the first thing it did when the slot came alive was sweep
+        itself up the whole audio band to where the control actually was. */
+    explicit CutFilter (Kind kindToUse) noexcept
+        : kind (kindToUse),
+          frequency (kindToUse == Kind::lowCut ? lowestHz : highestHz)
+    {
+    }
 
     /** Sizes the state and clears it. Allocates nothing -- the storage is fixed -- but
         belongs in prepareToPlay all the same, because it needs the rate. */
@@ -81,6 +89,16 @@ public:
         to 300 Hz would spend most of its time in the top octave and cross the bottom
         four in its last instant, which is the jump this exists to remove. */
     void setTarget (float frequencyHz, int slopeDbPerOctave) noexcept;
+
+    /** Lands the filter where `setTarget` last aimed it, with nothing in its state.
+
+        For a filter coming back from not being run at all. The ramp protects a signal
+        being heard through the filter, and one that has been idle has none -- but its
+        ramp has not moved either, so left alone it walks from wherever it was last left
+        to wherever the control is now, as the first thing anybody hears it do. Measured
+        on a high cut set on an empty slot, that sweep put the worst break in the
+        waveform up twelvefold the moment a cabinet arrived. */
+    void settle() noexcept;
 
     /** Audio thread: filters in place. A no-op while switched off. */
     void process (juce::AudioBuffer<float>&) noexcept;
@@ -148,7 +166,7 @@ private:
     double rate = 44100.0;
     int channels = 2;
 
-    float frequency = lowestHz;
+    float frequency; // which end it starts at depends on the kind: see the constructor
     int slope = 12;
 
     int numSections = 0;

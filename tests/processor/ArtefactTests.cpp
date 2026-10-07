@@ -1,6 +1,7 @@
 #include "../helpers/CabinetFixture.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 using namespace Cabinets;
@@ -125,8 +126,15 @@ TEST_CASE ("Dragging Align does not step the filter", "[processor][clicks]")
         }
     });
 
+    // Four rather than its neighbours' three, and the same allowance as "Sweeping
+    // alignment does not crackle", for the same reason. Alignment is a delay line now,
+    // ramped linearly, so its read rate steps where the ramp starts and where it ends --
+    // a corner in the pitch, not a break in the waveform, measured at 3.3 times the
+    // baseline here, exactly at those two samples. It passed under three only because
+    // the baseline used to include the click a first load made, nearly ninety times the
+    // size of this; see "Filling an empty slot fades rather than cuts".
     INFO ("baseline " << tone.baseline() << ", during the drag " << tone.afterwards());
-    CHECK (tone.afterwards() < tone.baseline() * 3.0f);
+    CHECK (tone.afterwards() < tone.baseline() * 4.0f);
 }
 
 TEST_CASE ("A slot filled again does not play back what it last heard", "[processor][clicks]")
@@ -183,6 +191,93 @@ TEST_CASE ("A slot filled again does not play back what it last heard", "[proces
 
     INFO ("loudest sample in silence after reloading: " << ghost);
     CHECK (ghost == 0.0f);
+}
+
+TEST_CASE ("Filling an empty slot fades rather than cuts", "[processor][clicks]")
+{
+    // The first thing anybody hears the plugin do, since every session starts with four
+    // empty slots -- and it broke the waveform twenty-nine milliseconds in, measured at
+    // two to four and a half hundred times the tone's own worst. Not the engine and not
+    // the crossfade: the high cut. It was built where a low cut parks, at 20 Hz, and an
+    // empty slot never runs its cuts, so the first block after a load told it where the
+    // control was and it swept itself up the whole band in front of the listener.
+    //
+    // The same went for anything set on a slot while it was empty, and for a session
+    // opened with a cut set: an idle slot's ramps are not advanced, so they walked from
+    // wherever they were left. They land now -- see IrSlot::startOver.
+    const auto slot = GENERATE (0, 1);
+    INFO ("slot " << slot);
+
+    const auto load = [slot] (FourCabinets& set)
+    {
+        REQUIRE (set.plugin.loadImpulseResponse (slot, set.files[(size_t) slot]).wasOk());
+    };
+
+    // Where nothing has been through the plugin yet there is no "before" to take a
+    // baseline from. The tone through an empty set is the tone untouched, which is what
+    // an empty set is for.
+    FourCabinets empty;
+    const auto dry = runTone (empty.plugin, [] {}).baseline();
+
+    SECTION ("loaded before playback")
+    {
+        FourCabinets set;
+        load (set);
+
+        const auto tone = runTone (set.plugin, [] {});
+        const auto worst = worstCurvature (tone.output, 2, (int) tone.output.size());
+
+        INFO ("dry " << dry << ", from the load on " << worst);
+        CHECK (worst < dry * 3.0f);
+    }
+
+    SECTION ("loaded part way through a tone")
+    {
+        FourCabinets set;
+
+        const auto tone = runTone (set.plugin, [&] { load (set); });
+
+        INFO ("baseline " << tone.baseline() << ", after the load " << tone.afterwards());
+        CHECK (tone.afterwards() < tone.baseline() * 3.0f);
+    }
+
+    SECTION ("set up while it was empty")
+    {
+        // Twenty-one times the baseline before this was fixed, and still twelve with the
+        // high cut built in the right place, from it walking down to its setting. And
+        // seven from the alignment once it landed rather than walked: its emptied line
+        // gave three milliseconds of silence while the entrance fade was already under
+        // way, so the cabinet stepped in at a sixth of its level instead of fading.
+        FourCabinets set;
+        setParameter (set.plugin, ParamID::highCut[(size_t) slot], 3000.0f);
+        setParameter (set.plugin, ParamID::align[(size_t) slot], 3.0f);
+
+        const auto tone = runTone (set.plugin, [&] { load (set); });
+
+        INFO ("baseline " << tone.baseline() << ", after the load " << tone.afterwards());
+        CHECK (tone.afterwards() < tone.baseline() * 3.0f);
+    }
+
+    SECTION ("filled by opening a session")
+    {
+        // A host restores the state before it prepares, so the slot is full before it
+        // has a rate and its first block is the first anything is heard through it.
+        // Forty-eight times the baseline before this was fixed, and still thirty with
+        // the high cut built in the right place, swept down from there to where the
+        // session left it.
+        FourCabinets files;
+        PluginProcessor opened;
+
+        setParameter (opened, ParamID::highCut[(size_t) slot], 3000.0f);
+        REQUIRE (opened.loadImpulseResponse (slot, files.files[(size_t) slot]).wasOk());
+        opened.prepareToPlay (rate, blockSize);
+
+        const auto tone = runTone (opened, [] {});
+        const auto worst = worstCurvature (tone.output, 2, (int) tone.output.size());
+
+        INFO ("dry " << dry << ", from the first block on " << worst);
+        CHECK (worst < dry * 3.0f);
+    }
 }
 
 //==============================================================================

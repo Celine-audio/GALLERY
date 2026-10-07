@@ -146,6 +146,16 @@ swap seamless, and throwing it away is only right for an engine that has been id
 audio thread does the throwing, as it picks the filter up — that history is the one
 thing in the convolver it owns outright.
 
+**An idle slot's ramps are frozen too.** Nothing advances a cut's, the alignment's or
+the pan's ramp while the slot is not being called, so whatever was set while it was
+empty — or whatever a filter was built with — used to be walked to in front of the
+listener the moment a cabinet arrived. The high cut was built at 20 Hz, where a low cut
+parks, and swept the whole band on every first load: 290× the baseline, 29 ms in. A
+rebuild that finds the slot idle sets `startFresh`, and `IrSlot::startOver` empties the
+delay line and the cuts and lands every ramp but the gain. The gain's fade from silence
+is the entrance, and it waits out the silence a just-emptied delay line gives a cabinet
+that has been pushed back, or that cabinet steps in at whatever the fade had reached.
+
 ## The blend pad
 
 There is no per-cabinet gain. `BlendPad` replaced four gain knobs, and the reason is
@@ -222,6 +232,22 @@ separate faults lived in moving it off that end, both measured, both now covered
 moves it at once and is for the copies the graph and the mix display keep — those never
 call `process()`, so a ramp they never advance would leave them drawing the previous
 setting for ever. `setTarget` is the audio path's, and ramps.
+
+## Bypass
+
+**The host's bypass is the plugin's own** (`PluginProcessor::getBypassParameter`).
+Without it the host made a second bypass, which neither moved the toolbar button nor
+faded — two switches that could disagree about whether the plugin was on.
+
+It is a 30 ms crossfade between the finished output and a copy of the input, AURA's
+figure, and **the cabinets keep running while bypassed**. That costs a bypassed plugin
+what a running one costs, and it looks like something to optimise; it is not. A cabinet
+not fed while bypassed keeps the history it had when bypass was pressed and convolves it
+on the way back — measured at 0.99 of full scale arriving over silence. The switch it
+replaced also broke the waveform 896× (2517× with the output trimmed, the trim ramping
+over 50 ms while the cabinet left in one sample). The trim is not ramped to unity any
+more: bypass takes it away by fading out the signal it is part of.
+`tests/processor/BypassTests.cpp` holds all three.
 
 ## Level
 
