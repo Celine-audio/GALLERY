@@ -1,6 +1,6 @@
 <img alt="GALLERY logo" src="/assets/gallery.svg" title="GALLERY Logo" width="250"/>
 
-GALLERY is an impulse response loader with great control over the blending and panning of the various IRs. It supports up to 4 IRs.
+GALLERY is an impulse response loader with great control over the blending and panning of the various IRs. It supports up to 4 stereo IRs.
 
 <img alt="GALLERY Interface" src="/docs/screenshots/interface.png" title="GALLERY Interface" width="1000"/>
 
