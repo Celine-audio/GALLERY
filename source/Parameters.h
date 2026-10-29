@@ -29,6 +29,13 @@ namespace ParamID
     inline constexpr auto blendX = "blendX";
     inline constexpr auto blendY = "blendY";
 
+    /** How the four are wired: each beside the others, in two chains, or in one. A
+        choice rather than a switch per pair of strips, because the routings worth
+        having are a short list and three switches are eight combinations, most of which
+        nobody would choose and all of which a host would offer to automate. See
+        Parameters::Routing. */
+    inline constexpr auto routing = "routing";
+
     /** How many cabinets. Four is the design, and the whole window is laid out around
         it, so this is documentation rather than a thing to turn up. */
     inline constexpr int numSlots = 4;
@@ -146,6 +153,117 @@ namespace Parameters
         out at the same loudness; four halves would be six decibels up in the middle
         of the pad and nowhere else. */
     BlendWeights blendWeights (float x, float y) noexcept;
+
+    //==========================================================================
+    /** How the cabinets are wired, in the order the parameter offers them.
+
+        Each cabinet either sends its output to the blend or into the next one along. A
+        run of cabinets joined that way is a *chain*: the input goes in at the first,
+        comes out of the last, and the chains are what the pad blends. Parallel is four
+        chains of one, which is what GALLERY always was; two chains is 1 into 2 beside
+        3 into 4; series is all four, one after another.
+
+        The two chains are the pad's two rows -- slot 0 and 1 across the top, 2 and 3
+        across the bottom -- so with them the pad's height still means something and its
+        width does not, and the dot only moves up and down. That is why the pairs are
+        these pairs. In series there is nothing to blend and the dot stays in the
+        middle. */
+    enum class Routing
+    {
+        parallel,
+        twoChains,
+        series
+    };
+
+    inline constexpr std::array<const char*, 3> routingNames { "Parallel", "Two chains", "Series" };
+
+    inline Routing routingForChoice (int index) noexcept
+    {
+        return (Routing) juce::jlimit (0, (int) routingNames.size() - 1, index);
+    }
+
+    /** Whether `slot` hands its output to the one after it rather than to the blend. */
+    inline constexpr bool feedsNext (Routing routing, int slot) noexcept
+    {
+        if (slot < 0 || slot >= ParamID::numSlots - 1)
+            return false;
+
+        switch (routing)
+        {
+            case Routing::twoChains: return slot % 2 == 0;
+            case Routing::series:    return true;
+            case Routing::parallel:  break;
+        }
+
+        return false;
+    }
+
+    /** The last slot of the chain `slot` is in, which is where that chain leaves for
+        the blend -- and so where its share of the output is kept. */
+    inline constexpr int chainEnd (Routing routing, int slot) noexcept
+    {
+        while (feedsNext (routing, slot))
+            ++slot;
+
+        return slot;
+    }
+
+    /** What every cabinet is doing this block, with everything that decides it worked in:
+        the routing, where the pad's dot sits, what is loaded, and mute and solo.
+
+        One function rather than the same arithmetic in the audio thread and the mix
+        curve, because the curve has to be the sound and two copies of a rule agree only
+        until one of them is edited. */
+    struct Mix
+    {
+        /** Whether a slot runs as a cabinet or passes what reaches it straight through.
+
+            A chain is a sequence, so taking a cabinet out of one cannot mean silence:
+            silencing the first cabinet of three would silence all three. A muted,
+            empty or un-soloed cabinet in a chain is therefore see-through instead --
+            the signal goes past it untouched -- and solo keeps its meaning of "let me
+            hear just this one".
+
+            True for every slot of a chain with nothing audible in it. That chain's share
+            is zero, so the flag decides nothing about the sound, and leaving it engaged
+            means a cabinet coming back fades in on the share alone rather than on a
+            crossfade from the dry signal underneath a fade from silence. */
+        ParamID::PerSlot<bool> engaged {};
+
+        /** Each chain's share of the output, kept at the chain's last slot and zero
+            everywhere else. Always summing to one across the chains being heard -- see
+            `blendWeights` for why one and not its root. */
+        ParamID::PerSlot<float> share {};
+
+        /** Whether anything is loaded, which decides whether the plugin runs cabinets
+            at all or passes the signal through. Distinct from anything being audible:
+            muting all four is a decision to hear nothing, and answering it with the
+            dry signal would substitute a sound nobody asked for. */
+        bool anyLoaded = false;
+    };
+
+    /** Works out the Mix. A chain's share is the pad's weights of its cabinets added
+        together -- so with two chains it is a row of the pad, and in series the whole
+        of it -- renormalised over the chains anybody is listening to. Renormalised, so muting one of
+        four shares the output between the other three instead of quietly dropping the
+        lot by a quarter.
+
+        Two cases that look like edge-case noise and are not. Solo hands the whole
+        output to what is soloed however far the pad is from it, since solo is an
+        instruction to listen to something and has to arrive at full strength. And
+        muting everything is silence, not the dry signal.
+
+        Realtime safe: no allocation, nothing that can block. The audio thread calls it
+        every block. */
+    Mix mixFor (Routing, float blendX, float blendY,
+                const ParamID::PerSlot<bool>& loaded,
+                const ParamID::PerSlot<bool>& muted,
+                const ParamID::PerSlot<bool>& soloed) noexcept;
+
+    /** The same, reading mute and solo from the parameters -- which is how both callers
+        have them. */
+    Mix mixFor (Routing, float blendX, float blendY,
+                const ParamID::PerSlot<bool>& loaded, const AllSlotPointers&) noexcept;
 
     /** A frequency, written the way somebody setting a filter reads one.
 

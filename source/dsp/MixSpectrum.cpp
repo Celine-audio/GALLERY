@@ -96,6 +96,8 @@ void MixSpectrum::prepare (double sampleRate)
     summed.assign ((size_t) fftSize, 0.0f);
     transform.assign ((size_t) fftSize * 2, 0.0f);
     magnitudes.assign ((size_t) fftSize / 2 + 1, 0.0f);
+    chainProduct.assign ((size_t) (fftSize / 2 + 1) * 2, 0.0f);
+    chainSum.assign ((size_t) (fftSize / 2 + 1) * 2, 0.0f);
 
     filterScratch.setSize (1, longest, false, true, true);
 
@@ -252,6 +254,19 @@ bool MixSpectrum::compute (const Parameters::BlendWeights& weights,
                            const ParamID::PerSlot<double>& alignSeconds,
                            std::vector<float>& destinationDb)
 {
+    // Parallel is four chains of one, each its own share and none of them see-through.
+    Parameters::Mix mix;
+    mix.share = weights;
+    mix.engaged.fill (true);
+
+    return compute (Parameters::Routing::parallel, mix, inverted, alignSeconds, destinationDb);
+}
+
+bool MixSpectrum::compute (Parameters::Routing routing, const Parameters::Mix& mix,
+                           const ParamID::PerSlot<bool>& inverted,
+                           const ParamID::PerSlot<double>& alignSeconds,
+                           std::vector<float>& destinationDb)
+{
     if (fft == nullptr)
         return false;
 
@@ -265,31 +280,99 @@ bool MixSpectrum::compute (const Parameters::BlendWeights& weights,
 
     std::fill (summed.begin(), summed.end(), 0.0f);
 
-    // Added as waveforms, which is the whole point: where two cabinets disagree they
-    // cancel, and those notches are what the Align control is for.
-    for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
+    const auto bins = fftSize / 2;
+    auto anyChained = false;
+
+    for (int start = 0; start < ParamID::numSlots;)
     {
-        const auto& cabinet = cabinets[slot];
+        const auto end = Parameters::chainEnd (routing, start);
+        const auto share = mix.share[(size_t) end];
 
-        if (! cabinet.valid)
+        // What is actually in the chain: a cabinet that is see-through, or has nothing
+        // in it, is a factor of one and leaves the product alone.
+        ParamID::PerSlot<int> members {};
+        auto count = 0;
+
+        for (auto slot = start; slot <= end; ++slot)
+            if (mix.engaged[(size_t) slot] && cabinets[(size_t) slot].valid)
+                members[(size_t) count++] = slot;
+
+        start = end + 1;
+
+        if (count == 0 || std::abs (share) < 1.0e-7f)
             continue;
 
-        const auto share = weights[slot] * (inverted[slot] ? -1.0f : 1.0f);
+        const auto signFor = [&inverted] (int slot) { return inverted[(size_t) slot] ? -1.0f : 1.0f; };
 
-        if (std::abs (share) < 1.0e-7f)
+        // A chain of one is a cabinet in parallel, added as a waveform exactly as it
+        // always was -- where two cabinets disagree they cancel, and those notches are
+        // what the Align control is for.
+        if (count == 1)
+        {
+            const auto slot = members[0];
+            const auto& cabinet = cabinets[(size_t) slot];
+
+            addDelayed (summed.data(), summed.size(),
+                        cabinet.filtered.data(), cabinet.filtered.size(),
+                        juce::jmax (0.0, alignSeconds[(size_t) slot]) * rate,
+                        share * signFor (slot));
             continue;
+        }
 
-        addDelayed (summed.data(), summed.size(),
-                    cabinet.filtered.data(), cabinet.filtered.size(),
-                    juce::jmax (0.0, alignSeconds[slot]) * rate, share);
+        // Longer chains multiplied out, a cabinet at a time, each placed at its delay
+        // before it is transformed -- the same placement as above, so the two cases
+        // cannot disagree about where a cabinet arrives.
+        for (int member = 0; member < count; ++member)
+        {
+            const auto slot = members[(size_t) member];
+            const auto& cabinet = cabinets[(size_t) slot];
+
+            std::fill (transform.begin(), transform.end(), 0.0f);
+
+            addDelayed (transform.data(), (size_t) fftSize,
+                        cabinet.filtered.data(), cabinet.filtered.size(),
+                        juce::jmax (0.0, alignSeconds[(size_t) slot]) * rate,
+                        signFor (slot));
+
+            fft->performRealOnlyForwardTransform (transform.data(), true);
+
+            if (member == 0)
+            {
+                std::copy (transform.begin(), transform.begin() + (long) chainProduct.size(),
+                           chainProduct.begin());
+                continue;
+            }
+
+            for (int bin = 0; bin <= bins; ++bin)
+            {
+                const auto index = (size_t) bin * 2;
+
+                const auto re = chainProduct[index], im = chainProduct[index + 1];
+                const auto otherRe = transform[index], otherIm = transform[index + 1];
+
+                chainProduct[index]     = re * otherRe - im * otherIm;
+                chainProduct[index + 1] = re * otherIm + im * otherRe;
+            }
+        }
+
+        if (! anyChained)
+            std::fill (chainSum.begin(), chainSum.end(), 0.0f);
+
+        juce::FloatVectorOperations::addWithMultiply (chainSum.data(), chainProduct.data(),
+                                                      share, (int) chainSum.size());
+        anyChained = true;
     }
 
     std::fill (transform.begin(), transform.end(), 0.0f);
     std::copy (summed.begin(), summed.end(), transform.begin());
 
-    fft->performRealOnlyForwardTransform (transform.data());
+    fft->performRealOnlyForwardTransform (transform.data(), true);
 
-    const auto bins = fftSize / 2;
+    // The chains joined to the cabinets in parallel as transforms rather than as
+    // waveforms -- the same sum, since a transform is linear, without transforming each
+    // chain back first.
+    if (anyChained)
+        juce::FloatVectorOperations::add (transform.data(), chainSum.data(), (int) chainSum.size());
 
     for (int bin = 0; bin <= bins; ++bin)
     {

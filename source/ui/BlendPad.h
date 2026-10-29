@@ -44,6 +44,21 @@ namespace Celine
             there is not is worse than an obviously empty one. */
         void setLoaded (int slot, bool isLoaded);
 
+        /** How the cabinets are wired, which changes what the pad is blending.
+
+            In parallel it is the four cabinets, a corner each. With two chains it is the
+            two chains -- 1 into 2 along the top, 3 into 4 along the bottom -- so the dot
+            runs along the vertical centre line, up and down only: a dot that could be
+            dragged sideways for no effect would be a control lying about what it does. In series there
+            is one path and nothing to blend, and the dot stays in the middle.
+
+            Where the dot is forced, the stored position is left alone, so a blend set in
+            parallel is waiting there when parallel comes back. */
+        void setRouting (Parameters::Routing);
+
+        /** Squares off the top corners, for when the pad hangs from a header. */
+        void setAttachedBelowHeader (bool);
+
         /** Called as the dot is dragged. */
         std::function<void (float x, float y)> onDragged;
 
@@ -74,12 +89,24 @@ namespace Celine
         void dragTo (juce::Point<float> pixels, bool snapping);
         void setHovered (bool);
 
+        /** The outline the pad is drawn and clipped in. */
+        juce::Path outline (juce::Rectangle<float>) const;
+
+        /** The point drawn for the dot: on the vertical centre line with two chains, and in the
+            middle in series, whatever is stored. */
+        juce::Point<float> shown() const noexcept;
+
         void drawWash (juce::Graphics&, juce::Rectangle<float>) const;
         void drawAxes (juce::Graphics&, juce::Rectangle<float>) const;
         void drawHandle (juce::Graphics&) const;
 
+        bool movable() const noexcept { return routing != Parameters::Routing::series; }
+
         float blendX = 0.0f, blendY = 0.0f;
         ParamID::PerSlot<bool> loaded {};
+
+        Parameters::Routing routing = Parameters::Routing::parallel;
+        bool attached = false;
 
         bool dragging = false, hovered = false;
 

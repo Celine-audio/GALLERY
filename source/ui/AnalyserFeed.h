@@ -78,7 +78,7 @@ namespace Celine
             this runs thirty times a second, and a vector built and thrown away each
             time is a heap allocation per frame for a result nearly always identical to
             the last. */
-        static constexpr int signatureSize = 7 + ParamID::numSlots * 9;
+        static constexpr int signatureSize = 8 + ParamID::numSlots * 9;
         using Signature = std::array<float, (size_t) signatureSize>;
 
         Signature signature() const;

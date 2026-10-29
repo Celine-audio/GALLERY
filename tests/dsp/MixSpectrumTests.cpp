@@ -268,3 +268,90 @@ TEST_CASE ("A cut moves the mix curve", "[dsp][mix]")
     INFO ("uncut " << flat[low] << " dB, cut " << cut[low] << " dB");
     CHECK (flat[low] - cut[low] > 40.0f);
 }
+
+TEST_CASE ("A chain is its cabinets multiplied, not added", "[dsp][mix][routing]")
+{
+    // Two cabinets that comb when added -- the same capture 48 samples apart -- are a
+    // single 48-sample delay of each other when one is fed into the other, and a delay
+    // is flat. A curve that summed the chain instead of multiplying it would draw the
+    // comb, which is exactly the wrong picture of what a chain sounds like.
+    MixSpectrum mix;
+    mix.prepare (rate);
+
+    give (mix, 0, spikeAt (64));
+    give (mix, 1, spikeAt (64 + 48));
+
+    Parameters::Mix chained;
+    chained.engaged.fill (true);
+    chained.share = { 0.0f, 1.0f, 0.0f, 0.0f };
+
+    std::vector<float> curve;
+    REQUIRE (mix.compute (Parameters::Routing::twoChains, chained, {}, {}, curve));
+
+    for (size_t i = 0; i < curve.size(); ++i)
+    {
+        INFO ("point " << i << " at " << LogSpectrum::frequencyForPoint ((int) i) << " Hz");
+        CHECK_THAT (curve[i], Catch::Matchers::WithinAbs (curve[0], 0.5f));
+    }
+}
+
+TEST_CASE ("A chain's notches are both cabinets' notches", "[dsp][mix][routing]")
+{
+    // A cut on the first cabinet and a cut on the second, chained: the result has both,
+    // which is the whole of why somebody would chain two.
+    MixSpectrum mix;
+    mix.prepare (rate);
+
+    mix.setResponse (0, 1, spikeAt (64), 500.0f, 24, CutFilter::highestHz, 12);
+    mix.setResponse (1, 1, spikeAt (64), CutFilter::lowestHz, 12, 4000.0f, 24);
+
+    Parameters::Mix chained;
+    chained.engaged.fill (true);
+    chained.share = { 0.0f, 1.0f, 0.0f, 0.0f };
+
+    std::vector<float> curve;
+    REQUIRE (mix.compute (Parameters::Routing::twoChains, chained, {}, {}, curve));
+
+    const auto index = [] (float hz)
+    {
+        auto best = 0;
+
+        for (int i = 1; i < LogSpectrum::points; ++i)
+            if (std::abs (LogSpectrum::frequencyForPoint (i) - hz)
+                    < std::abs (LogSpectrum::frequencyForPoint (best) - hz))
+                best = i;
+
+        return (size_t) best;
+    };
+
+    const auto middle = curve[index (1400.0f)];
+
+    INFO ("60 Hz " << curve[index (60.0f)] << ", 1.4 kHz " << middle << ", 16 kHz " << curve[index (16000.0f)]);
+    CHECK (middle - curve[index (60.0f)] > 40.0f);
+    CHECK (middle - curve[index (16000.0f)] > 30.0f);
+}
+
+TEST_CASE ("A see-through cabinet leaves its chain alone", "[dsp][mix][routing]")
+{
+    // Muted in a chain, a cabinet passes the signal past rather than silencing it -- so
+    // the curve has to be the rest of the chain, not nothing and not the cabinet.
+    MixSpectrum mix;
+    mix.prepare (rate);
+
+    give (mix, 0, spikeAt (64));
+    mix.setResponse (1, 1, spikeAt (64), 500.0f, 24, CutFilter::highestHz, 12);
+
+    Parameters::Mix chained;
+    chained.engaged = { true, false, true, true };
+    chained.share = { 0.0f, 1.0f, 0.0f, 0.0f };
+
+    std::vector<float> curve;
+    REQUIRE (mix.compute (Parameters::Routing::twoChains, chained, {}, {}, curve));
+
+    // Flat: the first cabinet's spike, and none of the second one's cut.
+    for (size_t i = 0; i < curve.size(); ++i)
+    {
+        INFO ("point " << i);
+        CHECK_THAT (curve[i], Catch::Matchers::WithinAbs (curve[0], 0.5f));
+    }
+}

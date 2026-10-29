@@ -68,6 +68,13 @@ public:
     /** Audio thread: filters in place. A no-op until a filter has been set. */
     void process (juce::AudioBuffer<float>& buffer) noexcept;
 
+    /** Audio thread: forgets everything the engine has heard, keeping the filter and
+        where it is in its frame. For a slot whose input is about to become a different
+        signal altogether -- a change of routing -- where the past it holds belongs to a
+        wiring that no longer exists. Costs a pass over the history, so it is for a
+        moment the output is faded out, not for every block. */
+    void forgetHistory() noexcept { clearHistory(); }
+
     /** Zero. The response's own group delay is the caller's to report. */
     int getLatencySamples() const noexcept { return 0; }
 

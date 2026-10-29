@@ -49,9 +49,55 @@ namespace
 //==============================================================================
 BlendPad::BlendPad()
 {
-    setTooltip ("Blend the four cabinets."
-                "Double-click to recentre."
-                "Hold Cmd to ignore the centre lines.");
+    setRouting (Parameters::Routing::parallel);
+}
+
+void BlendPad::setRouting (Parameters::Routing newRouting)
+{
+    routing = newRouting;
+
+    switch (routing)
+    {
+        case Parameters::Routing::twoChains:
+            setTooltip ("Blend the two chains: 1 into 2 at the top, 3 into 4 at the bottom. "
+                        "Double-click to recentre. Hold Cmd to ignore the centre line.");
+            break;
+
+        case Parameters::Routing::series:
+            setTooltip ("In series the four are one path, so there is nothing to blend.");
+            dragging = false;
+            break;
+
+        case Parameters::Routing::parallel:
+            setTooltip ("Blend the four cabinets. Double-click to recentre. "
+                        "Hold Cmd to ignore the centre lines.");
+            break;
+    }
+
+    // A hover left over from a pad that was movable would draw a live handle on one
+    // that is not.
+    if (! movable())
+        hovered = false;
+
+    repaint();
+}
+
+void BlendPad::setAttachedBelowHeader (bool isAttached)
+{
+    attached = isAttached;
+    repaint();
+}
+
+juce::Point<float> BlendPad::shown() const noexcept
+{
+    switch (routing)
+    {
+        case Parameters::Routing::twoChains: return { 0.0f, blendY };
+        case Parameters::Routing::series:    return {};
+        case Parameters::Routing::parallel:  break;
+    }
+
+    return { blendX, blendY };
 }
 
 void BlendPad::setPosition (float x, float y)
@@ -100,8 +146,10 @@ juce::Point<float> BlendPad::positionToPixels() const
 {
     const auto square = field();
 
-    return { square.getCentreX() + blendX * square.getWidth() * 0.5f,
-             square.getCentreY() - blendY * square.getHeight() * 0.5f };
+    const auto dot = shown();
+
+    return { square.getCentreX() + dot.x * square.getWidth() * 0.5f,
+             square.getCentreY() - dot.y * square.getHeight() * 0.5f };
 }
 
 void BlendPad::dragTo (juce::Point<float> pixels, bool snapping)
@@ -111,8 +159,12 @@ void BlendPad::dragTo (juce::Point<float> pixels, bool snapping)
     if (square.getWidth() <= 0.0f)
         return;
 
-    auto x = juce::jlimit (-1.0f, 1.0f,
-                           (pixels.x - square.getCentreX()) / (square.getWidth() * 0.5f));
+    // With two chains the width is left exactly where it was. It means nothing to the
+    // sound now, but it will again in parallel, and a blend somebody set there should
+    // be waiting for them when they go back.
+    auto x = routing == Parameters::Routing::parallel
+                 ? juce::jlimit (-1.0f, 1.0f, (pixels.x - square.getCentreX()) / (square.getWidth() * 0.5f))
+                 : blendX;
     auto y = juce::jlimit (-1.0f, 1.0f,
                            (square.getCentreY() - pixels.y) / (square.getHeight() * 0.5f));
 
@@ -120,7 +172,9 @@ void BlendPad::dragTo (juce::Point<float> pixels, bool snapping)
     // being dragged onto it as well.
     if (snapping)
     {
-        x = snapped (x);
+        if (routing == Parameters::Routing::parallel)
+            x = snapped (x);
+
         y = snapped (y);
     }
 
@@ -140,22 +194,29 @@ void BlendPad::setHovered (bool nowHovered)
 }
 
 //==============================================================================
+juce::Path BlendPad::outline (juce::Rectangle<float> square) const
+{
+    juce::Path rounded;
+    rounded.addRoundedRectangle (square.getX(), square.getY(), square.getWidth(), square.getHeight(),
+                                 Theme::cornerRadius, Theme::cornerRadius,
+                                 ! attached, ! attached, true, true);
+    return rounded;
+}
+
 void BlendPad::paint (juce::Graphics& g)
 {
     const auto square = frame();
+    const auto rounded = outline (square);
 
     // The graph's own ground, rounded like everything else in the window, so the pad
     // reads as another window onto the same thing rather than a control panel beside it.
     g.setColour (Theme::consoleBackground());
-    g.fillRoundedRectangle (square, Theme::cornerRadius);
+    g.fillPath (rounded);
 
     // Clipped to the rounding, so the four washes stop where the frame does instead of
     // filling its corners back in square.
     {
         juce::Graphics::ScopedSaveState saved (g);
-
-        juce::Path rounded;
-        rounded.addRoundedRectangle (square, Theme::cornerRadius);
         g.reduceClipRegion (rounded);
 
         drawWash (g, square);
@@ -167,7 +228,10 @@ void BlendPad::paint (juce::Graphics& g)
 
 void BlendPad::drawWash (juce::Graphics& g, juce::Rectangle<float> square) const
 {
-    const auto weights = Parameters::blendWeights (blendX, blendY);
+    // What is drawn is what is heard: the wash follows the dot where it is drawn, not
+    // where it is stored.
+    const auto dot = shown();
+    const auto weights = Parameters::blendWeights (dot.x, dot.y);
 
     // Slot 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right -- the order
     // blendWeights uses.
@@ -189,7 +253,10 @@ void BlendPad::drawWash (juce::Graphics& g, juce::Rectangle<float> square) const
 
         const auto colour = Theme::irSlot (slot);
         const auto centre = corners[index];
-        const auto share = juce::jlimit (0.0f, 1.0f, weights[index]);
+        // Quieter in series: the pad is not a control there, and a wash at full
+        // strength would look like one waiting to be used.
+        const auto share = juce::jlimit (0.0f, 1.0f, weights[index])
+                         * (routing == Parameters::Routing::series ? 0.4f : 1.0f);
 
         // The blend drawn as itself: the pad's interior is the four colours mixed in
         // the proportions being heard, so where the handle is and what it is doing are
@@ -210,18 +277,24 @@ void BlendPad::drawWash (juce::Graphics& g, juce::Rectangle<float> square) const
 
 void BlendPad::drawAxes (juce::Graphics& g, juce::Rectangle<float> square) const
 {
-    // The two centre lines, which are what make "in the middle" a place you can aim at
-    // rather than a guess. Inset from the rounding so neither runs into a corner.
+    // The centre lines, which are what make "in the middle" a place you can aim at
+    // rather than a guess. Inset from the rounding so neither runs into a corner. With
+    // two chains the vertical one is also the track the dot runs along, so it stays;
+    // the horizontal one marks the even blend. In series there is nowhere to aim.
     const auto inset = Theme::cornerRadius;
 
     g.setColour (Theme::grid().withAlpha (0.4f));
-    g.drawHorizontalLine ((int) square.getCentreY(),
-                          square.getX() + inset, square.getRight() - inset);
-    g.drawVerticalLine ((int) square.getCentreX(),
-                        square.getY() + inset, square.getBottom() - inset);
+
+    if (movable())
+    {
+        g.drawHorizontalLine ((int) square.getCentreY(),
+                              square.getX() + inset, square.getRight() - inset);
+        g.drawVerticalLine ((int) square.getCentreX(),
+                            square.getY() + inset, square.getBottom() - inset);
+    }
 
     g.setColour (Theme::line().withAlpha (0.18f));
-    g.drawRoundedRectangle (square.reduced (0.5f), Theme::cornerRadius, 1.0f);
+    g.strokePath (outline (square.reduced (0.5f)), juce::PathStrokeType (1.0f));
 }
 
 void BlendPad::drawHandle (juce::Graphics& g) const
@@ -241,7 +314,7 @@ void BlendPad::drawHandle (juce::Graphics& g) const
 //==============================================================================
 void BlendPad::mouseMove (const juce::MouseEvent& event)
 {
-    setHovered (positionToPixels().getDistanceFrom (event.position) < handleReach);
+    setHovered (movable() && positionToPixels().getDistanceFrom (event.position) < handleReach);
 }
 
 void BlendPad::mouseExit (const juce::MouseEvent&)
@@ -251,6 +324,9 @@ void BlendPad::mouseExit (const juce::MouseEvent&)
 
 void BlendPad::mouseDown (const juce::MouseEvent& event)
 {
+    if (! movable())
+        return;
+
     dragging = true;
 
     if (onGesture != nullptr)
@@ -262,6 +338,9 @@ void BlendPad::mouseDown (const juce::MouseEvent& event)
 
 void BlendPad::mouseDrag (const juce::MouseEvent& event)
 {
+    if (! dragging)
+        return;
+
     // The modifier a knob uses for fine adjustment, doing the same job: it is the way
     // out of the snap when the setting you want is just beside one.
     dragTo (event.position, ! event.mods.isCommandDown());
@@ -269,6 +348,9 @@ void BlendPad::mouseDrag (const juce::MouseEvent& event)
 
 void BlendPad::mouseUp (const juce::MouseEvent& event)
 {
+    if (! dragging)
+        return;
+
     dragging = false;
     hovered = positionToPixels().getDistanceFrom (event.position) < handleReach;
 
@@ -280,15 +362,22 @@ void BlendPad::mouseUp (const juce::MouseEvent& event)
 
 void BlendPad::mouseDoubleClick (const juce::MouseEvent&)
 {
+    if (! movable())
+        return;
+
     // Back to all four in equal measure, which is the setting somebody who has just
-    // loaded four captures wants before they have decided anything.
+    // loaded four captures wants before they have decided anything. With two chains,
+    // back to the two chains evenly -- and the width left where it was, for the same
+    // reason a drag leaves it.
+    const auto x = routing == Parameters::Routing::parallel ? 0.0f : blendX;
+
     if (onGesture != nullptr)
         onGesture (true);
 
-    setPosition (0.0f, 0.0f);
+    setPosition (x, 0.0f);
 
     if (onDragged != nullptr)
-        onDragged (0.0f, 0.0f);
+        onDragged (x, 0.0f);
 
     if (onGesture != nullptr)
         onGesture (false);

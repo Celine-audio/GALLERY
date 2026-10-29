@@ -16,6 +16,7 @@ PluginProcessor::PluginProcessor()
     outputGainParameter = apvts.getRawParameterValue (ParamID::outputGain);
     blendXParameter = apvts.getRawParameterValue (ParamID::blendX);
     blendYParameter = apvts.getRawParameterValue (ParamID::blendY);
+    routingParameter = apvts.getRawParameterValue (ParamID::routing);
 
     startTimer (pollIntervalMs);
 }
@@ -33,7 +34,12 @@ PluginProcessor::~PluginProcessor()
 //==============================================================================
 double PluginProcessor::getTailLengthSeconds() const
 {
-    return ImpulseResponse::maximumSeconds + (double) IrSlot::maximumAlignMs * 0.001;
+    // Four of the longest responses end to end, which is what series at the top
+    // resolution rings for. Stated for the worst routing rather than the one in use, for
+    // the same reason it is stated for the longest resolution: a tail that moved would
+    // have to be announced.
+    return (double) ParamID::numSlots
+         * (IrSlot::maximumResponseSeconds + (double) IrSlot::maximumAlignMs * 0.001);
 }
 
 //==============================================================================
@@ -59,6 +65,9 @@ void PluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     scratch.setSize (numChannels, samplesPerBlock, false, true, true);
     wet.setSize (numChannels, samplesPerBlock, false, true, true);
     bypassDry.setSize (numChannels, samplesPerBlock, false, true, true);
+    chainIn.setSize (numChannels, samplesPerBlock, false, true, true);
+    chainOut.setSize (numChannels, samplesPerBlock, false, true, true);
+    fedInput.setSize (numChannels, samplesPerBlock, false, true, true);
     analysisMix.setSize (1, samplesPerBlock, false, true, true);
 
     // Landed where the bypass already stands, for the same reason as the crossfade
@@ -79,7 +88,25 @@ void PluginProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     // Measured: the first block after a re-prepare came out at full scale against a
     // settled 0.25, which on a guitar DI is the unprocessed attack of whatever note
     // the transport started on.
-    wetMix.setCurrentAndTargetValue (measureBlend().anyLoaded ? 1.0f : 0.0f);
+    // And the routing is simply the one asked for, with the chains at their shares:
+    // there is nothing playing yet to fade a change of wiring out of.
+    routing = Parameters::routingForChoice ((int) routingParameter->load());
+    routingLevel.reset (sampleRate, routingFadeSeconds);
+    routingLevel.setCurrentAndTargetValue (1.0f);
+    rewiredInput.reset (sampleRate, routingFadeSeconds);
+    rewiredInput.setCurrentAndTargetValue (1.0f);
+
+    const auto mix = measureBlend();
+
+    wetMix.setCurrentAndTargetValue (mix.anyLoaded ? 1.0f : 0.0f);
+
+    for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
+    {
+        // The slots' own gain ramp, so a chain's share and a cabinet's polarity move at
+        // the same pace.
+        chainShare[slot].reset (sampleRate, 0.02);
+        chainShare[slot].setCurrentAndTargetValue (mix.share[slot]);
+    }
 
     // Exponential rather than cumulative: a live picture of what is coming out now,
     // so a frame from ten seconds ago should have stopped counting. Slow, though -- at
@@ -126,64 +153,59 @@ bool PluginProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 }
 
 //==============================================================================
-PluginProcessor::Blend PluginProcessor::measureBlend() const noexcept
+Parameters::Mix PluginProcessor::measureBlend() const noexcept
 {
-    Blend result;
-
-    // Solo belongs to the set rather than to a slot, so it is settled first.
-    auto anySoloed = false;
-
-    for (const auto& p : slotParameters)
-        anySoloed |= Parameters::SlotPointers::isOn (p.solo);
-
-    const auto raw = Parameters::blendWeights (blendXParameter->load(),
-                                               blendYParameter->load());
-
-    std::array<bool, (size_t) ParamID::numSlots> heard {};
-    auto total = 0.0f;
-    auto count = 0;
+    ParamID::PerSlot<bool> loaded {};
 
     for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
+        loaded[slot] = slots[slot].isActive();
+
+    return Parameters::mixFor (routing, blendXParameter->load(), blendYParameter->load(),
+                               loaded, slotParameters);
+}
+
+bool PluginProcessor::followRouting (bool anyLoaded) noexcept
+{
+    const auto asked = Parameters::routingForChoice ((int) routingParameter->load());
+
+    if (asked == routing)
     {
-        const auto& p = slotParameters[slot];
-        const auto loaded = slots[slot].isActive();
-
-        result.anyLoaded |= loaded;
-
-        heard[slot] = loaded
-                   && ! Parameters::SlotPointers::isOn (p.mute)
-                   && (Parameters::SlotPointers::isOn (p.solo) || ! anySoloed);
-
-        if (heard[slot])
-        {
-            total += raw[slot];
-            ++count;
-        }
+        // Including a change asked for and then taken back before it landed: the fade
+        // simply turns round.
+        routingLevel.setTargetValue (1.0f);
+        return false;
     }
 
-    // Renormalised across whatever is being heard, so the shares still sum to one and
-    // the plugin stays at the level it was. This is what stops muting one of four from
-    // quietening the other three -- the same rule the old per-slot trim followed, now
-    // that the shares are unequal.
-    constexpr auto negligible = 1.0e-6f;
+    // With nothing coming out of the cabinets there is nothing to fade, and waiting
+    // thirty milliseconds to rewire silence would only make the switch feel slow.
+    const auto silent = ! anyLoaded && ! wetMix.isSmoothing() && wetMix.getCurrentValue() <= 0.0f;
 
-    if (total > negligible)
+    if (! silent)
     {
-        for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
-            result.weight[slot] = heard[slot] ? raw[slot] / total : 0.0f;
+        routingLevel.setTargetValue (0.0f);
 
-        return result;
+        if (routingLevel.isSmoothing() || routingLevel.getCurrentValue() > 0.0f)
+            return false;
     }
 
-    // The dot is sitting on a corner whose cabinet is not one of the ones being heard,
-    // so every share that survived is zero. Solo is an instruction to listen to
-    // something and has to produce something to listen to, so the soloed cabinets share
-    // the output equally; a mute is an instruction not to, and answers with silence.
-    if (anySoloed && count > 0)
-        for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
-            result.weight[slot] = heard[slot] ? 1.0f / (float) count : 0.0f;
+    routing = asked;
 
-    return result;
+    if (silent)
+    {
+        routingLevel.setTargetValue (1.0f);
+        return true;
+    }
+
+    // Faded out: every slot forgets the old wiring, and the input is let back in from
+    // nothing -- see rewiredInput. The output comes back at once, because there is now
+    // nothing in any cabinet for it to let out until the input has started to arrive.
+    for (auto& slot : slots)
+        slot.forgetHistory();
+
+    rewiredInput.setCurrentAndTargetValue (0.0f);
+    rewiredInput.setTargetValue (1.0f);
+    routingLevel.setCurrentAndTargetValue (1.0f);
+    return true;
 }
 
 //==============================================================================
@@ -236,13 +258,33 @@ void PluginProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 
 void PluginProcessor::runCabinets (juce::AudioBuffer<float>& buffer, int numChannels, int numSamples) noexcept
 {
-    const auto blend = measureBlend();
+    auto anyLoaded = false;
+
+    for (const auto& slot : slots)
+        anyLoaded |= slot.isActive();
+
+    const auto rewired = followRouting (anyLoaded);
+    const auto mix = measureBlend();
+
+    setSlotLevels (mix);
+
+    // The output is faded out at this moment -- that is when a change is taken -- so
+    // everything the new wiring moves can land where it is going rather than spend the
+    // fade back in walking there.
+    if (rewired)
+    {
+        for (auto& slot : slots)
+            slot.landEngagement();
+
+        for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
+            chainShare[slot].setCurrentAndTargetValue (mix.share[slot]);
+    }
 
     // Loaded, not audible: four muted cabinets are still four cabinets, and the answer
     // to muting them is silence rather than the signal that went in.
-    wetMix.setTargetValue (blend.anyLoaded ? 1.0f : 0.0f);
+    wetMix.setTargetValue (mix.anyLoaded ? 1.0f : 0.0f);
 
-    if (! blend.anyLoaded && ! wetMix.isSmoothing() && wetMix.getCurrentValue() <= 0.0f)
+    if (! mix.anyLoaded && ! wetMix.isSmoothing() && wetMix.getCurrentValue() <= 0.0f)
     {
         applyOutputGain (buffer, outputGainParameter->load());
         return;
@@ -251,7 +293,26 @@ void PluginProcessor::runCabinets (juce::AudioBuffer<float>& buffer, int numChan
     juce::AudioBuffer<float> dry (buffer.getArrayOfWritePointers(), numChannels, 0, numSamples);
     juce::AudioBuffer<float> summed (wet.getArrayOfWritePointers(), numChannels, 0, numSamples);
 
-    sumSlots (dry, summed, blend);
+    sumSlots (dry, summed, mix);
+
+    if (routingLevel.isSmoothing())
+    {
+        for (int channel = 0; channel < numChannels; ++channel)
+        {
+            auto* samples = summed.getWritePointer (channel);
+            auto walk = routingLevel;
+
+            for (int i = 0; i < numSamples; ++i)
+                samples[i] *= walk.getNextValue();
+        }
+
+        routingLevel.skip (numSamples);
+    }
+    else if (routingLevel.getCurrentValue() < 1.0f)
+    {
+        summed.applyGain (routingLevel.getCurrentValue());
+    }
+
     mixWetIntoDry (buffer, summed, numChannels, numSamples);
 
     // The trim stays where it is set, bypassed or not: bypass takes it away by fading
@@ -291,18 +352,14 @@ void PluginProcessor::mixBypass (juce::AudioBuffer<float>& buffer, int numChanne
     bypassMix.skip (numSamples);
 }
 
-void PluginProcessor::sumSlots (const juce::AudioBuffer<float>& dry,
-                                juce::AudioBuffer<float>& summed,
-                                const Blend& blend) noexcept
+void PluginProcessor::setSlotLevels (const Parameters::Mix& mix) noexcept
 {
-    summed.clear();
-
     for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
     {
         const auto& p = slotParameters[slot];
 
         IrSlot::Levels levels;
-        levels.weight = blend.weight[slot];
+        levels.engaged = mix.engaged[slot];
         levels.pan = p.pan->load();
         levels.inverted = Parameters::SlotPointers::isOn (p.phase);
         levels.alignMs = p.align->load();
@@ -312,7 +369,107 @@ void PluginProcessor::sumSlots (const juce::AudioBuffer<float>& dry,
         levels.highCutSlope = Parameters::slopeForChoice ((int) p.highCutSlope->load());
 
         slots[slot].setLevels (levels);
-        slots[slot].process (dry, scratch, summed);
+    }
+}
+
+void PluginProcessor::sumSlots (const juce::AudioBuffer<float>& dry,
+                                juce::AudioBuffer<float>& summed,
+                                const Parameters::Mix& mix) noexcept
+{
+    summed.clear();
+
+    const auto numChannels = summed.getNumChannels();
+    const auto numSamples = summed.getNumSamples();
+
+    // Two buffers a chain's signal passes between, one slot's output being the next
+    // one's input. Views onto storage sized in prepareToPlay, so nothing here allocates.
+    juce::AudioBuffer<float> first (chainIn.getArrayOfWritePointers(), numChannels, 0, numSamples);
+    juce::AudioBuffer<float> second (chainOut.getArrayOfWritePointers(), numChannels, 0, numSamples);
+
+    // What the chains are fed: the input, unless the routing has just changed and it is
+    // being held off or faded back in. One copy for every chain, so all of them walk
+    // the same ramp.
+    juce::AudioBuffer<float> faded (fedInput.getArrayOfWritePointers(), numChannels, 0, numSamples);
+    const juce::AudioBuffer<float>* input = &dry;
+
+    if (rewiredInput.isSmoothing())
+    {
+        for (int channel = 0; channel < numChannels; ++channel)
+        {
+            const auto* in = dry.getReadPointer (channel);
+            auto* out = faded.getWritePointer (channel);
+            auto walk = rewiredInput;
+
+            for (int i = 0; i < numSamples; ++i)
+                out[i] = in[i] * walk.getNextValue();
+        }
+
+        rewiredInput.skip (numSamples);
+        input = &faded;
+    }
+    else if (rewiredInput.getCurrentValue() < 1.0f)
+    {
+        faded.clear();
+        input = &faded;
+    }
+
+    for (int start = 0; start < ParamID::numSlots;)
+    {
+        const auto end = Parameters::chainEnd (routing, start);
+        auto& share = chainShare[(size_t) end];
+
+        share.setTargetValue (mix.share[(size_t) end]);
+
+        // A chain nobody is hearing still runs if anything in it is loaded. A muted
+        // cabinet's engine holds the input history its response is convolved against,
+        // and one that stopped listening would come back missing however much of the
+        // past its response reaches into. Only a chain with nothing in it is skipped.
+        auto running = false;
+
+        for (auto slot = start; slot <= end; ++slot)
+            running |= slots[(size_t) slot].isRunning();
+
+        if (! running && ! share.isSmoothing() && share.getCurrentValue() <= 0.0f)
+        {
+            start = end + 1;
+            continue;
+        }
+
+        const juce::AudioBuffer<float>* signal = input;
+
+        for (auto slot = start; slot <= end; ++slot)
+        {
+            auto& next = signal == &first ? second : first;
+
+            next.clear();
+            slots[(size_t) slot].process (*signal, scratch, next);
+            signal = &next;
+        }
+
+        if (! share.isSmoothing())
+        {
+            if (share.getCurrentValue() > 0.0f)
+                for (int channel = 0; channel < numChannels; ++channel)
+                    summed.addFrom (channel, 0, *signal, channel, 0, numSamples, share.getCurrentValue());
+        }
+        else
+        {
+            // A copy of the ramp per channel, so every channel walks the same one; the
+            // real one is advanced once, below.
+            for (int channel = 0; channel < numChannels; ++channel)
+            {
+                auto* out = summed.getWritePointer (channel);
+                const auto* in = signal->getReadPointer (channel);
+                auto walk = share;
+
+                for (int i = 0; i < numSamples; ++i)
+                    out[i] += in[i] * walk.getNextValue();
+            }
+
+            share.skip (numSamples);
+        }
+
+        start = end + 1;
     }
 }
 
@@ -598,14 +755,25 @@ bool PluginProcessor::copyShapedResponse (int slot, juce::AudioBuffer<float>& de
 
 double PluginProcessor::longestResolutionSeconds() const
 {
-    // The longest of whatever is loaded, so an export is long enough for every cabinet
-    // in the blend rather than for the first one asked about.
+    // The longest chain of whatever is loaded, so an export is long enough for every
+    // cabinet in the blend rather than for the first one asked about. A chain rings for
+    // its responses end to end: each one convolves the whole of the tail before it.
+    const auto wiring = Parameters::routingForChoice ((int) routingParameter->load());
     auto longest = Parameters::responseSeconds (0);
 
-    for (int slot = 0; slot < ParamID::numSlots; ++slot)
-        if (isSlotLoaded (slot))
-            longest = juce::jmax (longest, Parameters::responseSeconds (
-                                               (int) slotParameters[(size_t) slot].resolution->load()));
+    for (int start = 0; start < ParamID::numSlots;)
+    {
+        const auto end = Parameters::chainEnd (wiring, start);
+        auto chain = 0.0;
+
+        for (auto slot = start; slot <= end; ++slot)
+            if (isSlotLoaded (slot))
+                chain += Parameters::responseSeconds (
+                    (int) slotParameters[(size_t) slot].resolution->load());
+
+        longest = juce::jmax (longest, chain);
+        start = end + 1;
+    }
 
     return longest;
 }

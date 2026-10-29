@@ -11,11 +11,12 @@
 #include <memory>
 
 /**
-    GALLERY: four cabinet responses convolved in parallel and summed.
+    GALLERY: four cabinet responses, wired in parallel or in chains, and blended.
 
     The shape of the thing is worth stating once. Each slot holds a file, a convolution
-    engine and two filters; the audio thread copies the input into each slot in turn,
-    convolves it, cuts it, and adds the result to the output. Everything expensive --
+    engine and two filters; the audio thread runs the input through each chain of slots
+    in turn -- a chain of one, in parallel -- and adds each chain's output to the blend
+    at that chain's share. Everything expensive --
     reading files, resampling them, levelling them and measuring them for the graph --
     happens on the message thread and reaches the audio thread only as a finished filter
     handed over under a try-lock the audio thread never waits on.
@@ -145,8 +146,10 @@ public:
         False when there is nothing loaded to render. Message thread; allocates. */
     bool renderBlend (juce::AudioBuffer<float>& destination);
 
-    /** The longest response any loaded slot is keeping, which is how long an export
-        runs. */
+    /** How long the blend takes to die away, which is how long an export runs: the
+        longest chain's responses end to end, at the resolution each slot is keeping.
+        In parallel that is simply the longest response; in series, all of them added
+        together. */
     double longestResolutionSeconds() const;
 
     /** Seconds of shaped response in the slot. Zero for an empty slot. */
@@ -172,21 +175,15 @@ public:
 
 private:
     //==============================================================================
-    /** Each cabinet's share of the output, with everything that decides it already
-        worked in: where the pad's dot sits, what is loaded, and what mute and solo
-        make of that. */
-    struct Blend
-    {
-        Parameters::BlendWeights weight {};
+    /** What every slot is doing this block, under the routing the audio thread is
+        running -- which, for the few milliseconds of a change, is not yet the one the
+        parameter asks for. See Parameters::mixFor. */
+    Parameters::Mix measureBlend() const noexcept;
 
-        /** Whether anything is loaded, which decides whether the plugin runs cabinets
-            at all or passes the signal through. Distinct from anything being audible:
-            muting all four is a decision to hear nothing, and answering it with the
-            dry signal would substitute a sound nobody asked for. */
-        bool anyLoaded = false;
-    };
-
-    Blend measureBlend() const noexcept;
+    /** Audio thread: steps the routing towards the one asked for, and says whether it
+        changed this block. A change is taken with the cabinets faded out -- see
+        routingLevel and rewiredInput. */
+    bool followRouting (bool anyLoaded) noexcept;
 
     /** Audio thread: everything the plugin does to the signal, trim included -- what
         comes out when it is not bypassed. */
@@ -196,9 +193,12 @@ private:
         before it, towards the input while bypassed and away from it while not. */
     void mixBypass (juce::AudioBuffer<float>&, int numChannels, int numSamples) noexcept;
 
-    /** Audio thread: runs each slot and adds it to `summed`. */
+    /** Audio thread: runs each chain of slots and adds it to `summed` at its share. */
     void sumSlots (const juce::AudioBuffer<float>& dry, juce::AudioBuffer<float>& summed,
-                   const Blend&) noexcept;
+                   const Parameters::Mix&) noexcept;
+
+    /** Audio thread: hands every slot its controls for this block. */
+    void setSlotLevels (const Parameters::Mix&) noexcept;
 
     /** Audio thread: crossfades the cabinets over the signal that went in. */
     void mixWetIntoDry (juce::AudioBuffer<float>&, const juce::AudioBuffer<float>& summed,
@@ -230,6 +230,44 @@ private:
     std::atomic<float>* outputGainParameter = nullptr;
     std::atomic<float>* blendXParameter = nullptr;
     std::atomic<float>* blendYParameter = nullptr;
+    std::atomic<float>* routingParameter = nullptr;
+
+    /** The routing the audio thread is running. Its own copy rather than the parameter
+        read afresh, because a change is not taken the moment it is asked for: see
+        routingLevel. */
+    Parameters::Routing routing = Parameters::Routing::parallel;
+
+    /** How much of the cabinets' output is let out while the routing changes -- 1 at
+        rest, walked to nothing, the wiring swapped, and walked back.
+
+        Faded rather than crossfaded. A crossfade would mean running the old wiring and
+        the new side by side, which is every convolution twice for the length of it; and
+        swapped without a fade, a cabinet whose input goes from the dry signal to another
+        cabinet's output in one sample is a step in the waveform. Fifteen milliseconds
+        each way is short enough to read as the switch being pressed rather than as the
+        sound dropping out. */
+    static constexpr double routingFadeSeconds = 0.015;
+    juce::SmoothedValue<float> routingLevel;
+
+    /** The input to the cabinets, faded back in after a change of routing.
+
+        Faded out and rewired is not enough on its own. Every cabinet still holds the
+        input it heard before -- in its convolution, its alignment line and its cuts --
+        and a cabinet that was hearing the dry signal and now hears another cabinet's
+        output would play that past back through the new wiring, which is a step in the
+        waveform arriving a few milliseconds into the fade back in. Measured at seven to
+        twenty-eight times the baseline on the test cabinets.
+
+        So at the swap every slot forgets what it heard, and the *input* is faded in
+        rather than the output: with every history empty, the new wiring is only filters
+        fed a signal that starts smoothly, and nothing that comes out of filters fed that
+        can step. Emptying all four is a pass over history sized for the longest
+        resolution -- measured at 15 us a slot, so the four fit in any block. */
+    juce::SmoothedValue<float> rewiredInput;
+
+    /** Each chain's share of the output, ramped, kept at the chain's last slot as
+        Parameters::Mix keeps it. */
+    ParamID::PerSlot<juce::SmoothedValue<float>> chainShare;
 
     /** How much of the output comes from the cabinets rather than straight through.
         Ramped, because loading the first cabinet or deleting the last one switches
@@ -247,7 +285,13 @@ private:
     // between the slots rather than one each: they run in sequence, so the second has
     // no use for what the first left behind. `bypassDry` is the input as it arrived,
     // kept only while bypass is on or moving.
-    juce::AudioBuffer<float> scratch, wet, bypassDry;
+    //
+    // `chainIn` and `chainOut` carry a signal from one slot of a chain to the next,
+    // swapping roles as it goes.
+    //
+    // `fedInput` is what goes into the chains while the input is fading back in after
+    // a change of routing.
+    juce::AudioBuffer<float> scratch, wet, bypassDry, chainIn, chainOut, fedInput;
 
     juce::dsp::Gain<float> outputGain;
 

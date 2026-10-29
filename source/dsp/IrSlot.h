@@ -61,19 +61,18 @@ public:
         bool operator!= (const Shaping& other) const noexcept { return ! operator== (other); }
     };
 
-    /** What the audio thread reads at the top of every block. Cheap, all of it: two
-        gains to ramp towards and four numbers the filters compare against what they
-        are already set to. */
+    /** What the audio thread reads at the top of every block. Cheap, all of it: a few
+        ramps to aim and four numbers the filters compare against what they are already
+        set to. */
     struct Levels
     {
-        /** This cabinet's share of the output, 0 to 1. Already carries mute, solo and
-            the blend -- a slot that is not being heard arrives here as zero rather
-            than as a flag, so there is one number to ramp instead of a level and a
-            switch that can disagree about when they change.
+        /** Whether this cabinet is heard as a cabinet, or what reaches it passes straight
+            through -- see Parameters::Mix::engaged, which is where it is decided.
 
-            One by default -- this cabinet, whole -- so that a Levels built and left
-            alone is a slot you can hear. The processor sets all four every block. */
-        float weight = 1.0f;
+            How loud the cabinet is in the output is *not* here. That is its chain's
+            share, and a chain is the processor's to scale: a cabinet half way along one
+            has no level of its own, only the next cabinet's input. */
+        bool engaged = true;
         float pan = 0.0f;        // -1 hard left, +1 hard right
         bool inverted = false;
 
@@ -170,9 +169,27 @@ public:
 
     void setLevels (const Levels&) noexcept;
 
+    /** Lands the engagement where it is aimed instead of walking there. For the one
+        moment that is safe: a change of routing, taken while the output is faded out,
+        where walking would only spend the fade-in crossfading between two wirings. */
+    void landEngagement() noexcept;
+
+    /** Audio thread: forgets everything the slot has heard -- the convolution's input
+        history, the alignment line and the cuts' state -- leaving every control and
+        ramp where it is. See PluginProcessor::rewiredInput, which is what it is for. */
+    void forgetHistory() noexcept;
+
+    /** Whether calling `process` would do anything. False for an empty slot whose fade
+        has landed, which is what lets a chain with nothing in it be skipped whole. */
+    bool isRunning() const noexcept { return active.load() || gain.isSmoothing(); }
+
     /** Convolves `input` through this slot and *adds* the result to `output`, using
         `scratch` as its working buffer. All three carry the prepared channel count and
-        no more than the prepared block size. Allocates nothing. */
+        no more than the prepared block size. Allocates nothing.
+
+        A slot that is not engaged adds `input` itself instead -- crossfaded, as
+        everything here is -- so the caller can wire one slot's output into the next
+        without asking which of them are in use. */
     void process (const juce::AudioBuffer<float>& input,
                   juce::AudioBuffer<float>& scratch,
                   juce::AudioBuffer<float>& output) noexcept;
@@ -197,6 +214,11 @@ private:
 
     /** Audio thread: pushes the block through the alignment delay. */
     void delay (juce::AudioBuffer<float>&, int numChannels, int numSamples) noexcept;
+
+    /** Audio thread: adds what a slot that is not engaged hands on -- its input -- for a
+        block in which there is no cabinet to add. */
+    void passThrough (const juce::AudioBuffer<float>& input, juce::AudioBuffer<float>& output,
+                      int numChannels, int numSamples) noexcept;
 
     /** Audio thread: empties everything downstream of the engine and lands every ramp
         but the gain where it is set. See `startFresh`. */
@@ -258,7 +280,11 @@ private:
     // Ramped rather than applied outright. The gain carries the polarity as its sign,
     // so inverting walks through zero instead of stepping across it -- a fade of a few
     // milliseconds where a flip would be a click.
-    juce::SmoothedValue<float> gain, panLeft, panRight;
+    //
+    // `engage` is a separate ramp from the gain, and has to be. The input passes
+    // through by one minus it, and a polarity flip walking the gain through zero would
+    // otherwise let the dry signal up through the middle of the flip.
+    juce::SmoothedValue<float> gain, engage, panLeft, panRight;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IrSlot)
 };

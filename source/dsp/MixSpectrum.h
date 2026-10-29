@@ -79,6 +79,30 @@ public:
                   const ParamID::PerSlot<double>& alignSeconds,
                   std::vector<float>& destinationDb);
 
+    /** The same, for any routing: each chain is its cabinets one after another, and the
+        chains are blended at the shares `mix` gives them -- the same Mix the audio
+        thread runs, so the curve is the sound.
+
+        A chain is a product, not a sum. A cabinet fed into another is the two filters
+        multiplied, frequency by frequency, so the second's notches land on top of the
+        first's -- which is the whole of why somebody would chain two. Multiplied as
+        transforms, with each cabinet placed at its delay first, so a cabinet aligned
+        within a chain moves the chain's curve exactly as it moves the sound.
+
+        One transform per cabinet in a chain, each frame the curve is redrawn, where the
+        parallel case is one transform altogether. Four at most, and the curve is only
+        redrawn when something has moved.
+
+        The transform is sized for one cabinet at the longest resolution, so a chain of
+        three or four at that resolution -- rooms convolved with rooms, several seconds
+        of tail -- wraps its far end round onto its start. That end is sixty decibels
+        down by then, and a curve sized for it would be a transform four times this one
+        for a setting that is a reverb rather than a cabinet. */
+    bool compute (Parameters::Routing, const Parameters::Mix&,
+                  const ParamID::PerSlot<bool>& inverted,
+                  const ParamID::PerSlot<double>& alignSeconds,
+                  std::vector<float>& destinationDb);
+
 private:
     /** One cabinet, already filtered and folded to mono, with what it was made from so
         that making it again can be skipped. */
@@ -106,6 +130,10 @@ private:
     int fftSize = 0;
 
     std::vector<float> summed, transform, magnitudes;
+
+    // The chains, multiplied out as transforms: one being built, and the sum of the
+    // finished ones. Interleaved complex, a bin to a pair.
+    std::vector<float> chainProduct, chainSum;
 
     // Scratch for the filtering, which runs on the message thread when a cut moves.
     juce::AudioBuffer<float> filterScratch;

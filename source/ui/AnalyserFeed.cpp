@@ -64,6 +64,7 @@ AnalyserFeed::Signature AnalyserFeed::signature() const
     // depends on a cut frequency.
     values[next++] = processorRef.getAPVTS().getRawParameterValue (ParamID::blendX)->load();
     values[next++] = processorRef.getAPVTS().getRawParameterValue (ParamID::blendY)->load();
+    values[next++] = processorRef.getAPVTS().getRawParameterValue (ParamID::routing)->load();
 
     for (const auto& p : slotParameters)
         for (const auto* value : { p.pan, p.align, p.lowCut, p.highCut, p.lowCutSlope,
@@ -185,39 +186,30 @@ void AnalyserFeed::refreshSpectrum()
 
 void AnalyserFeed::refreshMix()
 {
-    // The shares actually being heard, which is the blend with mute and solo worked in
-    // -- the same arithmetic the audio thread does, so the curve is the sound.
-    auto weights = Parameters::blendWeights (
-        processorRef.getAPVTS().getRawParameterValue (ParamID::blendX)->load(),
-        processorRef.getAPVTS().getRawParameterValue (ParamID::blendY)->load());
+    // What every cabinet is doing, with the routing, mute and solo worked in -- by the
+    // same function the audio thread asks, so the curve is the sound.
+    auto& state = processorRef.getAPVTS();
+    const auto routing = Parameters::routingForChoice ((int) state.getRawParameterValue (ParamID::routing)->load());
 
-    const auto soloed = anySoloed();
-    ParamID::PerSlot<bool> inverted {};
+    ParamID::PerSlot<bool> loaded {}, inverted {};
     ParamID::PerSlot<double> alignSeconds {};
-    auto total = 0.0f;
 
     for (int slot = 0; slot < ParamID::numSlots; ++slot)
     {
         const auto index = (size_t) slot;
         const auto& p = slotParameters[index];
 
-        const auto heard = processorRef.isSlotLoaded (slot)
-                        && ! Parameters::SlotPointers::isOn (p.mute)
-                        && (Parameters::SlotPointers::isOn (p.solo) || ! soloed);
-
-        if (! heard)
-            weights[index] = 0.0f;
-
-        total += weights[index];
+        loaded[index] = processorRef.isSlotLoaded (slot);
         inverted[index] = Parameters::SlotPointers::isOn (p.phase);
         alignSeconds[index] = (double) p.align->load() * 0.001;
     }
 
-    if (total > 1.0e-6f)
-        for (auto& weight : weights)
-            weight /= total;
+    const auto mix = Parameters::mixFor (routing,
+                                         state.getRawParameterValue (ParamID::blendX)->load(),
+                                         state.getRawParameterValue (ParamID::blendY)->load(),
+                                         loaded, slotParameters);
 
-    if (! mixSpectrum.compute (weights, inverted, alignSeconds, mixScratch))
+    if (! mixSpectrum.compute (routing, mix, inverted, alignSeconds, mixScratch))
     {
         graph.getSpectrum().setMixTrace ({});
         return;

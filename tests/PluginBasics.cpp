@@ -99,8 +99,9 @@ TEST_CASE ("No parameter ID is used twice", "[parameters]")
             seen.add (withID->paramID);
         }
 
-    // Bypass, the output trim and the blend pad's two axes, plus ten per cabinet.
-    CHECK (seen.size() == 4 + ParamID::numSlots * 10);
+    // Bypass, the output trim, the blend pad's two axes and the routing, plus ten per
+    // cabinet.
+    CHECK (seen.size() == 5 + ParamID::numSlots * 10);
 }
 
 TEST_CASE ("Processing a block leaves the signal finite", "[audio]")

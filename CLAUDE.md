@@ -8,7 +8,8 @@ Guidance for Claude Code working in this repository.
 Audio's house plugin template (derived from [Pamplejuce](https://github.com/sudara/pamplejuce)),
 carrying the house look, About window, licensing and CI.
 
-Four cabinets convolve the input in parallel and are summed. Each slot has a file, a
+Four cabinets convolve the input — in parallel, in two chains (1→2 beside 3→4), or
+all in series — and are blended. Each slot has a file, a
 solo/mute/polarity trio, an alignment delay, pan, and a low/high cut whose slope is
 selectable. Their relative levels are not per-slot controls at all — one
 XY pad blends the four, a cabinet at each corner. Above the strips, one graph draws all four at
@@ -63,9 +64,11 @@ runs tests and benchmarks together.
 |---|---|
 | One slot's audio | `source/dsp/IrSlot` — owns the file, the convolver, the cuts and the gains |
 | Summing the four | `PluginProcessor::processBlock` |
+| How they are wired | `Parameters::Routing`, and `Parameters::mixFor` for what every slot does under it |
 | Parameters | `source/Parameters.h` (ID) and `source/Parameters.cpp` (declaration) — **both**, they are separate lists |
 | A strip's controls | `source/ui/IrStripControl` |
 | The blend between cabinets | `source/ui/BlendPad` and `Parameters::blendWeights` |
+| Choosing the routing | `source/ui/RoutingSelector`, the pad's header |
 | The graph | `source/ui/AnalyserGraph` and the two displays under it |
 | What the graph draws | `source/ui/AnalyserFeed` — not the editor, which is layout and wiring |
 | This plugin's own colours | `source/PluginThemeRoles.h` (the roles) and `source/PluginTheme.h` (the accessors) |
@@ -86,7 +89,7 @@ runs tests and benchmarks together.
   history if it is ever wanted back.
 - `source/ui/` — GALLERY's own interface, and `PluginLookAndFeel`, the seam the house kit
   is extended through (the kit itself is in `modules/CelineUI`; see "The house kit"):
-  `IrStripControl`, `BlendPad`, `AnalyserGraph`, `MultiSpectrumDisplay`,
+  `IrStripControl`, `BlendPad`, `RoutingSelector`, `AnalyserGraph`, `MultiSpectrumDisplay`,
   `MultiWaveformDisplay`, `CutRangeSlider`, `TabHeader`, `LetterToggleButton`,
   `LibraryPanel`, `PlotGeometry`, and `AnalyserFeed` — which is not a component at all
   but everything the graph draws, gathered and handed to it
@@ -158,6 +161,9 @@ that has been pushed back, or that cabinet steps in at whatever the fade had rea
 
 ## The blend pad
 
+What follows is the pad in parallel. Under the other routings it blends chains rather
+than cabinets — see "Routing".
+
 There is no per-cabinet gain. `BlendPad` replaced four gain knobs, and the reason is
 what those knobs were being used for: nobody sets a cabinet's level in isolation, they
 set it against the other three. Four numbers that have to stay summing to one is not
@@ -174,7 +180,7 @@ out of the blend altogether is what the mute button is for, and a pad that also 
 would be two controls doing one job with no way to tell from the pad which had been
 used.
 
-Two cases in `measureBlend` that look like edge-case noise and are not:
+Two cases in `Parameters::mixFor` that look like edge-case noise and are not:
 
 - **Solo hands the whole output to what is soloed**, however far the pad is from it,
   renormalised over the soloed set. Solo is an instruction to listen to something, so
@@ -182,6 +188,70 @@ Two cases in `measureBlend` that look like edge-case noise and are not:
 - **Muting every cabinet is silence**, not the dry signal. Four muted cabinets are
   still four cabinets, and turning anything up would substitute a sound nobody asked
   for.
+
+## Routing
+
+`Parameters::Routing` is three choices: **Parallel** (what GALLERY always was, and the
+default, so old sessions open unchanged), **Two chains** (1 into 2 beside 3 into 4) and
+**Series** (1 into 2 into 3 into 4). Each slot either hands its output to the blend or
+to the next slot; a run joined that way is a *chain*, and the pad blends chains. A chain
+is defined by `feedsNext` and `chainEnd`, and nothing else in the plugin assumes which
+routings exist — adding one is a case in `feedsNext`, a name, and a picture.
+
+**`Parameters::mixFor` is the one place the rules live**, and the audio thread, the mix
+curve and the pad's drawing all ask it. What it decides:
+
+- **A chain's share is the pad's weights of its cabinets added together**, renormalised
+  over the chains being heard. With two chains that is a row of the pad — which is why
+  the pairs are 1+2 and 3+4, the pad's rows — so the pad's height blends them and its
+  width does nothing, and the dot runs along the vertical centre line, up and down
+  only. The colours stay in their corners whatever the routing. In series there is one chain at a share of one, and the dot sits in the middle
+  and does not move. Either way the stored position is left alone, so a parallel blend
+  is waiting when parallel comes back. No arrows or captions on the pad: the routing
+  buttons and the connectors between the strips say what the wiring is, and the pad
+  says what it can do by where the dot is allowed to go.
+- **A cabinet taken out of a chain is see-through, not silent** (`Mix::engaged`). Muting
+  the second of four cannot mean silencing all four. Muted, empty, or not soloed while
+  something else is: the signal passes it untouched. Solo therefore still means "let me
+  hear this one" — soloing one cabinet of a chain is that cabinet alone.
+- **A chain with nothing audible in it keeps every slot engaged**, at a share of zero.
+  That looks backwards and is not: an unheard chain of one in parallel left see-through
+  would fade in on a crossfade from the dry signal underneath a fade from silence, and
+  the dry signal would be briefly audible on every unmute.
+
+In `IrSlot` that is a separate `engage` ramp beside the gain. The input passes through
+at one minus it, and it cannot share the gain's ramp: the gain carries polarity as its
+sign, and a flip walking through zero would let the dry signal up through the middle of
+it. The entrance hold holds both.
+
+**A change of routing is a fade out, a forgetting, and a fade in**
+(`PluginProcessor::followRouting`). Faded out and rewired is not enough: every cabinet
+still holds the input it heard under the old wiring, and plays it back through the new
+one — measured at seven to twenty-eight times the baseline, arriving a few milliseconds
+into the fade back in, because it comes out through each chain's delays. So once the
+output is at nothing, all four slots forget their histories (`IrSlot::forgetHistory`) —
+a pass over history sized for ULTRA, measured at 15 µs a slot, which is what lets all
+four happen in one block. Then the *input* is faded back in rather than the output: with every history empty the
+new wiring is only filters fed a signal that starts smoothly, and nothing downstream of
+that can step. `tests/processor/RoutingTests.cpp` holds the click test, which fails
+without the forgetting.
+
+The mix curve **multiplies a chain and adds the chains** (`MixSpectrum::compute`). A
+cabinet fed into another is the two filters multiplied — the second's notches on top of
+the first's — so a chain is a product of transforms, each cabinet placed at its delay
+first, where a chain of one is still added as a waveform as it always was. The
+transform is sized for one cabinet at ULTRA, so three or four ULTRA cabinets in series
+wrap their far tail onto the start; it is sixty decibels down by then, and sizing for it
+would quadruple the transform for a setting that is a reverb.
+
+Two numbers follow from series. **The tail length is four ULTRA responses end to end**,
+stated for the worst routing rather than the one in use, because a tail that moved would
+have to be announced. And **an export runs for the longest chain's responses added
+together** (`longestResolutionSeconds`), since each cabinet convolves the whole tail of
+the one before it.
+
+The waveform view is untouched by routing: it is there to align cabinets against each
+other, and each trace is still one cabinet placed at its own delay.
 
 ## Response length
 
@@ -265,7 +335,7 @@ brings the complaint back.
   being near-silent drags the average down and the compensating gain up. Nobody hears
   the average. That twelve decibels is measured, not guessed.
 - **The four shares always sum to one** (`Parameters::blendWeights`, renormalised by
-  `PluginProcessor::measureBlend`). Four microphones on one speaker are largely
+  `Parameters::mixFor`). Four microphones on one speaker are largely
   correlated, so they add nearly arithmetically rather than as power — hence shares
   summing to one, not to its root. Four quarters and one whole come out at the same
   loudness; four halves would be six decibels up in the middle of the pad and nowhere

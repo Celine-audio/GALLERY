@@ -56,8 +56,11 @@ void IrSlot::prepare (double sampleRate, int numChannels, int maximumBlockSize)
     lowCut.prepare (rate, channels);
     highCut.prepare (rate, channels);
 
-    for (auto* ramp : { &gain, &panLeft, &panRight })
+    for (auto* ramp : { &gain, &engage, &panLeft, &panRight })
         ramp->reset (rate, gainRampSeconds);
+
+    // Engaged until told otherwise, which is what a slot outside any chain always is.
+    engage.setCurrentAndTargetValue (1.0f);
 
     spectrumDb.assign ((size_t) spectrumPoints, -120.0f);
 
@@ -336,18 +339,17 @@ void IrSlot::startOver() noexcept
     panLeft.setCurrentAndTargetValue (panLeft.getTargetValue());
     panRight.setCurrentAndTargetValue (panRight.getTargetValue());
 
-    // Not the gain. On a load, its fade up from silence is what the slot's entrance
-    // *is* -- the one ramp here with something to protect, since whatever the engine
-    // starts convolving from an emptied history arrives under it.
+    // Not the gain, nor the engagement. On a load, the gain's fade up from silence is
+    // what the slot's entrance *is* -- the one ramp here with something to protect,
+    // since whatever the engine starts convolving from an emptied history arrives under
+    // it -- and in a chain the engagement is the other half of that same entrance.
 }
 
 //==============================================================================
 void IrSlot::setLevels (const Levels& levels) noexcept
 {
-    const auto linear = juce::jlimit (0.0f, 1.0f, levels.weight);
-    const auto signed_ = levels.inverted ? -linear : linear;
-
-    gain.setTargetValue (signed_);
+    gain.setTargetValue (levels.inverted ? -1.0f : 1.0f);
+    engage.setTargetValue (levels.engaged ? 1.0f : 0.0f);
 
     // Equal power, referred to the centre rather than the corners. The textbook
     // sine/cosine pair puts 0.707 a side at centre, which is right for placing a mono
@@ -371,6 +373,51 @@ void IrSlot::setLevels (const Levels& levels) noexcept
     // rather than as a change of tone. See CutFilter::setTarget.
     lowCut.setTarget (levels.lowCutHz, levels.lowCutSlope);
     highCut.setTarget (levels.highCutHz, levels.highCutSlope);
+}
+
+void IrSlot::landEngagement() noexcept
+{
+    engage.setCurrentAndTargetValue (engage.getTargetValue());
+}
+
+void IrSlot::forgetHistory() noexcept
+{
+    convolver.forgetHistory();
+    alignDelay.reset();
+    lowCut.reset();
+    highCut.reset();
+}
+
+void IrSlot::passThrough (const juce::AudioBuffer<float>& input,
+                          juce::AudioBuffer<float>& output,
+                          int numChannels, int numSamples) noexcept
+{
+    // What a slot that is not engaged hands on: its input, at one minus the engagement.
+    // Settled at nothing that is nothing to add, which is the case for every slot
+    // outside a chain and so for nearly every block.
+    if (! engage.isSmoothing())
+    {
+        const auto through = 1.0f - engage.getCurrentValue();
+
+        if (through > 0.0f)
+            for (int channel = 0; channel < numChannels; ++channel)
+                output.addFrom (channel, 0, input, juce::jmin (channel, input.getNumChannels() - 1),
+                                0, numSamples, through);
+
+        return;
+    }
+
+    for (int channel = 0; channel < numChannels; ++channel)
+    {
+        const auto* in = input.getReadPointer (juce::jmin (channel, input.getNumChannels() - 1));
+        auto* out = output.getWritePointer (channel);
+        auto walk = engage;
+
+        for (int i = 0; i < numSamples; ++i)
+            out[i] += in[i] * (1.0f - walk.getNextValue());
+    }
+
+    engage.skip (numSamples);
 }
 
 void IrSlot::process (const juce::AudioBuffer<float>& input,
@@ -406,6 +453,7 @@ void IrSlot::process (const juce::AudioBuffer<float>& input,
         {
             panLeft.skip (numSamples);
             panRight.skip (numSamples);
+            passThrough (input, output, numChannels, numSamples);
             return;
         }
     }
@@ -429,6 +477,11 @@ void IrSlot::process (const juce::AudioBuffer<float>& input,
     // fade -- measured at seven to fifty times the baseline. Only samples that really
     // are zero are passed over, so nothing heard is dropped even if alignment moves
     // while this runs.
+    //
+    // The engagement waits with it. In a chain, a cabinet arriving is a crossfade from
+    // the signal passing through to the cabinet, and a crossfade that started early
+    // would fade the signal out under a cabinet that has not arrived yet -- a gap in
+    // the middle of the chain.
     auto first = 0;
 
     if (entranceHold > 0)
@@ -458,13 +511,31 @@ void IrSlot::process (const juce::AudioBuffer<float>& input,
     // offering it rather than by inventing a law for them.
     jassert (numChannels <= 2);
 
+    // While the cabinet is waiting to arrive, what passes through is whatever the
+    // engagement already lets through -- held, like the gain, rather than walked.
+    if (first > 0)
+    {
+        const auto through = 1.0f - engage.getCurrentValue();
+
+        if (through > 0.0f)
+            for (int channel = 0; channel < numChannels; ++channel)
+                output.addFrom (channel, 0, input, juce::jmin (channel, input.getNumChannels() - 1),
+                                0, first, through);
+    }
+
+    const auto* dryLeft = input.getReadPointer (0);
+    const auto* dryRight = input.getReadPointer (juce::jmin (1, input.getNumChannels() - 1));
+
     if (numChannels == 1)
     {
         auto* samples = block.getWritePointer (0);
         auto* out = output.getWritePointer (0);
 
         for (int i = first; i < numSamples; ++i)
-            out[i] += samples[i] * gain.getNextValue();
+        {
+            const auto e = engage.getNextValue();
+            out[i] += samples[i] * gain.getNextValue() * e + dryLeft[i] * (1.0f - e);
+        }
 
         panLeft.skip (numSamples);
         panRight.skip (numSamples);
@@ -481,9 +552,10 @@ void IrSlot::process (const juce::AudioBuffer<float>& input,
 
     for (int i = first; i < numSamples; ++i)
     {
-        const auto g = gain.getNextValue();
+        const auto e = engage.getNextValue();
+        const auto g = gain.getNextValue() * e;
 
-        outLeft[i] += left[i] * g * panLeft.getNextValue();
-        outRight[i] += right[i] * g * panRight.getNextValue();
+        outLeft[i] += left[i] * g * panLeft.getNextValue() + dryLeft[i] * (1.0f - e);
+        outRight[i] += right[i] * g * panRight.getNextValue() + dryRight[i] * (1.0f - e);
     }
 }

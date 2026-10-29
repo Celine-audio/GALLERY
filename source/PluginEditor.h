@@ -9,6 +9,7 @@
 #include <CelineUI/IconButton.h>
 #include "ui/IrStripControl.h"
 #include "ui/LibraryPanel.h"
+#include "ui/RoutingSelector.h"
 #include "ui/PluginLookAndFeel.h"
 #include <CelineUI/Theme.h>
 
@@ -35,6 +36,7 @@ public:
     ~PluginEditor() override;
 
     void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
     void resized() override;
 
 private:
@@ -93,6 +95,12 @@ private:
     // Bottom left, under the library and square. What used to be four gain knobs, one
     // per strip -- see BlendPad for why they were one control all along.
     Celine::BlendPad blendPad;
+
+    // The pad's header: how the cabinets are wired, above how much of each wiring is
+    // heard. The same choice is drawn again between the strips -- see
+    // paintOverChildren -- because the strips are where somebody is looking when they
+    // wonder why muting one cabinet did not silence it.
+    Celine::RoutingSelector routingSelector { *processorRef.getAPVTS().getParameter (ParamID::routing) };
 
     // Down the right-hand edge, where AURA puts its own. The two plugins are used one
     // after the other on the same signal, and a trim that is in a different place in

@@ -129,6 +129,46 @@ TEST_CASE ("Audio thread performance")
             return work.getSample (0, 0);
         });
     };
+
+    // The same four in one chain. The convolutions are the same four, so this should
+    // sit beside the number above; what it adds is the hand-over between slots.
+    if (auto* routing = plugin.getAPVTS().getParameter (ParamID::routing))
+        routing->setValueNotifyingHost (routing->convertTo0to1 ((float) Parameters::Routing::series));
+
+    // Past the change of wiring, so what is measured is the wiring rather than the swap.
+    for (int block = 0; block < 32; ++block)
+    {
+        work.makeCopyOf (source);
+        plugin.processBlock (work, midi);
+    }
+
+    BENCHMARK_ADVANCED ("processBlock, four cabinets in series")
+    (Catch::Benchmark::Chronometer meter)
+    {
+        meter.measure ([&] (int)
+        {
+            work.makeCopyOf (source);
+            plugin.processBlock (work, midi);
+            return work.getSample (0, 0);
+        });
+    };
+}
+
+TEST_CASE ("Routing change performance")
+{
+    // A change of routing empties all four slots' histories on the audio thread, in one
+    // block. That is a pass over all the history each has room for -- sized for the
+    // longest resolution whatever is loaded -- so this is the one block in which the
+    // audio thread does more than usual, and four of these have to fit in a small
+    // buffer's time. 15 us each when it was written.
+    IrSlot slot;
+    slot.prepare (sampleRate, 2, blockSize);
+
+    BENCHMARK ("Forgetting one slot's history")
+    {
+        slot.forgetHistory();
+        return slot.isActive();
+    };
 }
 
 TEST_CASE ("UI frame performance")

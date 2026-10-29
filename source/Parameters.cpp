@@ -44,6 +44,95 @@ namespace Parameters
                  even + span * u * v };
     }
 
+    Mix mixFor (Routing routing, float blendX, float blendY,
+                const ParamID::PerSlot<bool>& loaded,
+                const ParamID::PerSlot<bool>& muted,
+                const ParamID::PerSlot<bool>& soloed) noexcept
+    {
+        Mix result;
+
+        // Solo belongs to the set rather than to a slot, so it is settled first.
+        auto anySoloed = false;
+
+        for (const auto flag : soloed)
+            anySoloed |= flag;
+
+        const auto raw = blendWeights (blendX, blendY);
+
+        ParamID::PerSlot<bool> heard {};
+
+        for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
+        {
+            result.anyLoaded |= loaded[slot];
+            heard[slot] = loaded[slot] && ! muted[slot] && (soloed[slot] || ! anySoloed);
+        }
+
+        // Chain by chain. A chain is heard if anything in it is, and takes the pad's
+        // weights of all its cabinets -- not only of the ones being heard. With two
+        // chains that makes its share a row of the pad whatever is muted along it.
+        ParamID::PerSlot<bool> chainHeard {};
+        auto total = 0.0f;
+        auto heardChains = 0;
+
+        for (int start = 0; start < ParamID::numSlots;)
+        {
+            const auto end = chainEnd (routing, start);
+            auto anyHeard = false;
+            auto weight = 0.0f;
+
+            for (auto slot = start; slot <= end; ++slot)
+            {
+                anyHeard |= heard[(size_t) slot];
+                weight += raw[(size_t) slot];
+            }
+
+            for (auto slot = start; slot <= end; ++slot)
+                result.engaged[(size_t) slot] = heard[(size_t) slot] || ! anyHeard;
+
+            if (anyHeard)
+            {
+                chainHeard[(size_t) end] = true;
+                result.share[(size_t) end] = weight;
+                total += weight;
+                ++heardChains;
+            }
+
+            start = end + 1;
+        }
+
+        // Renormalised across whatever is being heard, so the shares still sum to one and
+        // the plugin stays at the level it was.
+        constexpr auto negligible = 1.0e-6f;
+
+        for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
+        {
+            if (! chainHeard[slot])
+                continue;
+
+            // The pad cannot reach zero for a chain any more -- see blendFloor -- but a
+            // floor is a setting, and solo has to produce something to listen to
+            // whatever it is set to.
+            result.share[slot] = total > negligible ? result.share[slot] / total
+                                                    : 1.0f / (float) heardChains;
+        }
+
+        return result;
+    }
+
+    Mix mixFor (Routing routing, float blendX, float blendY,
+                const ParamID::PerSlot<bool>& loaded, const AllSlotPointers& slots) noexcept
+    {
+        ParamID::PerSlot<bool> muted {}, soloed {};
+
+        for (size_t slot = 0; slot < (size_t) ParamID::numSlots; ++slot)
+        {
+            muted[slot] = SlotPointers::isOn (slots[slot].mute);
+            soloed[slot] = SlotPointers::isOn (slots[slot].solo);
+        }
+
+        return mixFor (routing, blendX, blendY, loaded, muted, soloed);
+    }
+
     AllSlotPointers bindSlots (juce::AudioProcessorValueTreeState& state)
     {
         AllSlotPointers slots;
@@ -211,6 +300,20 @@ namespace Parameters
         layout.add (floatParam (ParamID::blendY, "Blend Y",
                                 juce::NormalisableRange<float> { -1.0f, 1.0f, 0.001f },
                                 0.0f, blendAxis()));
+
+        {
+            juce::StringArray choices;
+
+            for (const auto* name : routingNames)
+                choices.add (name);
+
+            // Parallel by default, which is what every session saved before this existed
+            // was -- so they reopen sounding as they did. Version 2: added after the
+            // rest, and AU reads the hint as which release a parameter arrived in.
+            layout.add (std::make_unique<juce::AudioParameterChoice> (
+                juce::ParameterID { ParamID::routing, 2 }, "Routing", choices,
+                (int) Routing::parallel));
+        }
 
         // One group per cabinet, in the order the strips appear across the window, so
         // a host's generic editor reads the same way the plugin does.

@@ -191,7 +191,19 @@ void PluginEditor::buildContent()
 
     blendPad.onDragged = [this] (float x, float y) { setBlend (x, y); };
     blendPad.onGesture = [this] (bool starting) { beginBlendGesture (starting); };
+    blendPad.setAttachedBelowHeader (true);
     addAndMakeVisible (blendPad);
+
+    routingSelector.onChanged = [this] (Parameters::Routing routing)
+    {
+        blendPad.setRouting (routing);
+
+        // The connectors between the strips are drawn by this window.
+        repaint();
+    };
+
+    blendPad.setRouting (routingSelector.getRouting());
+    addAndMakeVisible (routingSelector);
 
     analyser.onViewChanged = [this] { feed.refresh(); };
     analyser.onZoomChanged = [this] { feed.refresh(); };
@@ -243,7 +255,11 @@ void PluginEditor::layOutContent (juce::Rectangle<int> area)
     //
     // Taken from the bottom, so the pad's own size decides the split and the library
     // gets what is left. The library is a list and can be any height; the pad cannot.
+    //
+    // The routing hangs above it as its header, the two one panel: how the cabinets are
+    // wired, then how much of each wiring is heard.
     blendPad.setBounds (left.removeFromBottom (juce::jmin (column, left.getHeight())));
+    routingSelector.setBounds (left.removeFromBottom (Theme::tabBarHeight));
     left.removeFromBottom (gap);
     library.setBounds (left);
 
@@ -438,6 +454,52 @@ void PluginEditor::paint (juce::Graphics& g)
     // centring it sits the word visibly high against the mark beside it.
     if (wordmark != nullptr && ! wordmarkBounds.isEmpty())
         Assets::drawWordmark (g, *wordmark, wordmarkBounds.toFloat());
+}
+
+void PluginEditor::paintOverChildren (juce::Graphics& g)
+{
+    // Where one cabinet feeds the next, a connector bridges the gap between their two
+    // strips, on the coloured rules along their tops: the strips joined the way the
+    // cabinets are. Without it the strips look exactly as they do in parallel, and a
+    // muted cabinet that lets the signal through instead of silencing it looks like a
+    // fault rather than like a chain.
+    const auto routing = routingSelector.getRouting();
+
+    for (int slot = 0; slot < ParamID::numSlots - 1; ++slot)
+    {
+        if (! Parameters::feedsNext (routing, slot))
+            continue;
+
+        const auto from = strips[(size_t) slot]->getBounds().toFloat();
+        const auto to = strips[(size_t) slot + 1]->getBounds().toFloat();
+
+        const auto centre = juce::Point<float> ((from.getRight() + to.getX()) * 0.5f, from.getY() + 1.5f);
+        const auto badge = juce::Rectangle<float> (20.0f, 20.0f).withCentre (centre);
+
+        // The two rules run on into each other underneath it.
+        juce::ColourGradient bridge (Theme::irSlot (slot), { from.getRight() - Theme::cornerRadius, centre.y },
+                                     Theme::irSlot (slot + 1), { to.getX() + Theme::cornerRadius, centre.y }, false);
+
+        g.setGradientFill (bridge);
+        g.fillRect (juce::Rectangle<float> (from.getRight() - Theme::cornerRadius, from.getY(),
+                                            to.getX() - from.getRight() + Theme::cornerRadius * 2.0f, 3.0f));
+
+        g.setColour (Theme::consoleBackground());
+        g.fillEllipse (badge);
+
+        g.setGradientFill (bridge);
+        g.drawEllipse (badge.reduced (1.0f), 1.6f);
+
+        // Pointing the way the signal goes.
+        juce::Path chevron;
+        chevron.startNewSubPath (centre.x - 2.0f, centre.y - 4.0f);
+        chevron.lineTo (centre.x + 2.5f, centre.y);
+        chevron.lineTo (centre.x - 2.0f, centre.y + 4.0f);
+
+        g.setColour (Theme::text());
+        g.strokePath (chevron, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved,
+                                                     juce::PathStrokeType::rounded));
+    }
 }
 
 void PluginEditor::resized()

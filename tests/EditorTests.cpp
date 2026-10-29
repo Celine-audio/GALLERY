@@ -6,6 +6,7 @@
 #include <ui/BlendPad.h>
 #include <ui/IrStripControl.h>
 #include <ui/LibraryPanel.h>
+#include <ui/RoutingSelector.h>
 #include <CelineUI/Theme.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -446,4 +447,69 @@ TEST_CASE ("The bypass button follows a bypass pressed in the host", "[ui]")
     CHECK_FALSE (bypass->isActive());
 
     plugin.editorBeingDeleted (editor.get());
+}
+
+TEST_CASE ("The routing hangs from the top of the pad, across its width", "[ui][layout][routing]")
+{
+    // One panel: how the cabinets are wired, then how much of each wiring is heard.
+    // A header a few pixels off the pad's edges reads as a separate control that
+    // happens to be nearby.
+    LoadedEditor loaded;
+
+    juce::Rectangle<int> header, pad;
+
+    for (auto* child : loaded.editor->getChildren())
+    {
+        if (auto* found = dynamic_cast<Celine::RoutingSelector*> (child))
+            header = found->getBounds();
+
+        if (auto* found = dynamic_cast<Celine::BlendPad*> (child))
+            pad = found->getBounds();
+    }
+
+    REQUIRE_FALSE (header.isEmpty());
+    REQUIRE_FALSE (pad.isEmpty());
+
+    CHECK (header.getX() == pad.getX());
+    CHECK (header.getRight() == pad.getRight());
+    CHECK (header.getBottom() == pad.getY());
+}
+
+TEST_CASE ("The routing buttons set the routing, and follow the host", "[ui][routing]")
+{
+    LoadedEditor loaded;
+
+    Celine::RoutingSelector* selector = nullptr;
+
+    for (auto* child : loaded.editor->getChildren())
+        if (auto* found = dynamic_cast<Celine::RoutingSelector*> (child))
+            selector = found;
+
+    REQUIRE (selector != nullptr);
+
+    std::vector<juce::Button*> buttons;
+
+    for (auto* child : selector->getChildren())
+        if (auto* button = dynamic_cast<juce::Button*> (child))
+            buttons.push_back (button);
+
+    REQUIRE (buttons.size() == Parameters::routingNames.size());
+
+    auto* parameter = loaded.plugin.getAPVTS().getRawParameterValue (ParamID::routing);
+
+    // In the order the parameter offers them, left to right.
+    buttons[(size_t) Parameters::Routing::series]->triggerClick();
+    loaded.pump();
+
+    CHECK (juce::roundToInt (parameter->load()) == (int) Parameters::Routing::series);
+    CHECK (buttons[(size_t) Parameters::Routing::series]->getToggleState());
+    CHECK_FALSE (buttons[(size_t) Parameters::Routing::parallel]->getToggleState());
+
+    // And a host moving it moves the buttons.
+    auto* routing = loaded.plugin.getAPVTS().getParameter (ParamID::routing);
+    routing->setValueNotifyingHost (routing->convertTo0to1 ((float) Parameters::Routing::twoChains));
+    loaded.pump();
+
+    CHECK (selector->getRouting() == Parameters::Routing::twoChains);
+    CHECK (buttons[(size_t) Parameters::Routing::twoChains]->getToggleState());
 }
