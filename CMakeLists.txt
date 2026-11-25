@@ -87,8 +87,12 @@ if (WANT_ASIO AND BUILD_STANDALONE AND WIN32)
     endif ()
 endif ()
 
-# Change me! Set the plugin formats you want built
 # Valid choices: AAX Unity VST VST3 AU AUv3 LV2 Standalone
+#
+# AAX is built on macOS and Windows only, and needs a PACE signature applied with
+# Avid's wraptool before a shipping Pro Tools will list it -- an unwrapped build loads
+# in a Pro Tools Developer build and nowhere else. Without that licence it is built but
+# shipped nowhere: the zips, the disk image and the installer all leave it out.
 set(FORMATS AAX AU VST3 LV2)
 
 if (BUILD_STANDALONE)
@@ -157,6 +161,10 @@ juce_add_plugin("${PROJECT_NAME}"
     # This is how it's listed in the DAW
     # This can be different from PROJECT_NAME and can have spaces!
     # You might want to use v${MAJOR_VERSION} here once you go to v2...
+    # Linux only: without curl, JUCE's Linux networking speaks plain http, and the
+    # update check is https.
+    NEEDS_CURL TRUE
+
     PRODUCT_NAME "${PRODUCT_NAME}")
 
 # This lets us use our code in both the JUCE targets and our Test target
@@ -216,7 +224,9 @@ target_compile_definitions(SharedCode
 
     # JUCE_WEB_BROWSER and JUCE_USE_CURL off by default
     JUCE_WEB_BROWSER=0  # If you set this to 1, add `NEEDS_WEB_BROWSER TRUE` to the `juce_add_plugin` call
-    JUCE_USE_CURL=0     # If you set this to 1, add `NEEDS_CURL TRUE` to the `juce_add_plugin` call
+    # Curl only on Linux, where the update check's https needs it (NEEDS_CURL above,
+    # and the link below so the Tests target gets it too).
+    JUCE_USE_CURL=$<IF:$<PLATFORM_ID:Linux>,1,0>
     JUCE_VST3_CAN_REPLACE_VST2=0
 
     # Uncomment if you are paying for a an Indie/Pro license or releasing under GPLv3
@@ -255,6 +265,10 @@ target_link_libraries(SharedCode
 
 if (HAVE_ASIO)
     target_include_directories(SharedCode INTERFACE "${ASIO_SDK_DIR}/common")
+endif ()
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(SharedCode INTERFACE juce::pkgconfig_JUCE_CURL_LINUX_DEPS)
 endif ()
 
 # Link the JUCE plugin targets our SharedCode target

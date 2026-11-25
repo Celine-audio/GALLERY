@@ -622,6 +622,14 @@ sits in a mix and whether it is switched in, neither of which is a property of a
 cabinet. `tests/processor/ExportTests.cpp` checks the rendered file matches
 what the plugin gives an impulse, sample for sample.
 
+## Update checks
+
+`source/UpdateCheck.h`, the same mechanism as Céline's. It asks GitHub's `releases/latest` whether a newer GALLERY is out, and it is **off until the user says yes**. The first time a window is on screen the user is asked once, and closing the question counts as a no. **Check for updates at launch** in the settings menu changes the answer later. The answer is kept in the per-machine settings file (`Celine::Settings::file()`), so the tests' redirect covers it too. **At most one request per process**: a background thread with a 5 s timeout, never retried. On Linux it goes through curl (`NEEDS_CURL`), because JUCE's own Linux networking speaks only http. Only a strictly newer release is announced (`isNewer`), so a dev build ahead of the latest release never hears about it. The tests never touch the network: a test editor is never shown, so no check starts.
+
+## Installers
+
+CI builds a `.dmg` on macOS (dmgbuild, layout in `packaging/dmg/settings.py`) and a `-Setup.exe` on Windows (Inno Setup, `packaging/installer.iss`), beside the zips. The release publishes all three. The artwork is drawn by `swift packaging/make-artwork.swift`, run from the repository root, and the results are committed. Its `rows` must match `settings.py`. There is no standalone and no AAX in any of them. **AAX is built but shipped nowhere**: it needs Avid's PACE signature, and there is no licence for that. Never change the installer's `AppId`.
+
 ## Verifying UI work
 
 Render it rather than describing it. A throwaway test using

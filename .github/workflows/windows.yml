@@ -94,15 +94,16 @@ jobs:
       - name: Archive the plugins
         working-directory: ${{ env.ARTIFACTS_PATH }}
         run: |
-          # One archive holding every format built, rather than an installer --
-          # see linux.yml for why.
+          # One archive holding every format built, for anyone who would rather
+          # place the files by hand. The installer below is the usual way in.
           #
           # Everything under the artefacts directory goes in, minus what the
           # linker leaves beside the plugins: the static library they were built
           # from, and the import libraries, export tables and symbol files. None
-          # of those are any use to someone installing this.
+          # of those are any use to someone installing this. Nor is the AAX, which
+          # is built but shipped nowhere (see FORMATS in CMakeLists.txt).
           7z a -tzip "${{ env.ARTIFACT_NAME }}.zip" \
-            "-xr!*.lib" "-xr!*.exp" "-xr!*.pdb" "-xr!*.ilk" .
+            "-xr!*.lib" "-xr!*.exp" "-xr!*.pdb" "-xr!*.ilk" "-x!AAX" .
 
           7z l "${{ env.ARTIFACT_NAME }}.zip"
 
@@ -111,3 +112,24 @@ jobs:
         with:
           name: ${{ env.ARTIFACT_NAME }}.zip
           path: "${{ env.ARTIFACTS_PATH }}/${{ env.ARTIFACT_NAME }}.zip"
+
+      # The installer: packaging/installer.iss, through Inno Setup. It reads
+      # PROJECT_NAME, PRODUCT_NAME and COMPANY_NAME from the environment (set from
+      # .env above) and the build from ..\Builds, and writes
+      # Builds/<product>-<version>-Windows-Setup.exe (product and project are both GALLERY,
+      # so that is ARTIFACT_NAME-Setup.exe). Inno Setup ships on GitHub's
+      # Windows images; it is installed only if this one lacks it.
+      - name: Build the installer
+        run: |
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          if [ ! -f "$ISCC" ]; then
+            choco install innosetup --no-progress -y
+          fi
+          "$ISCC" packaging/installer.iss
+          ls -la "${{ env.BUILD_DIR }}"/*-Setup.exe
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-Setup.exe
+          path: "${{ env.BUILD_DIR }}/${{ env.ARTIFACT_NAME }}-Setup.exe"

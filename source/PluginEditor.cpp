@@ -2,6 +2,7 @@
 
 #include "ProductInfo.h"
 #include "Settings.h"
+#include "UpdateCheck.h"
 #include <CelineUI/EmbeddedAssets.h>
 #include <CelineUI/Fonts.h>
 #include "ui/PlotGeometry.h"
@@ -57,6 +58,87 @@ namespace
     // (540 of 2250, a quarter) stated in the way that keeps it true at every size.
 
     const juce::String ellipsis = juce::String::fromUTF8 ("\xe2\x80\xa6");
+
+    /** A themed message with a row of buttons (juce::AlertWindow ignores the palette). The
+        first button is the accented choice. Each reports its index through onChoice; the
+        caller closes the window. */
+    class ChoicePrompt : public juce::Component
+    {
+       public:
+        ChoicePrompt (PluginLookAndFeel& lnf, const juce::String& text, const juce::StringArray& choices)
+        {
+            setLookAndFeel (&lnf);
+
+            message.setText (text, juce::dontSendNotification);
+            message.setFont (Celine::Fonts::light (14.0f));
+            message.setColour (juce::Label::textColourId, Celine::Theme::text());
+            message.setJustificationType (juce::Justification::topLeft);
+            addAndMakeVisible (message);
+
+            for (int i = 0; i < choices.size(); ++i)
+            {
+                auto* button = buttons.add (new juce::TextButton (choices[i]));
+
+                if (i == 0)
+                {
+                    button->setColour (juce::TextButton::buttonColourId, Celine::Theme::accent());
+                    button->setColour (juce::TextButton::textColourOffId, Celine::Theme::text());
+                }
+
+                button->onClick = [this, i] { if (onChoice) onChoice (i); };
+                addAndMakeVisible (button);
+            }
+
+            // Wide enough for the buttons side by side, tall enough for the wrapped text.
+            int rowWidth = 0;
+
+            for (auto* button : buttons)
+            {
+                button->changeWidthToFitText (buttonHeight);
+                button->setSize (juce::jmax (button->getWidth() + 16, 96), buttonHeight);
+                rowWidth += button->getWidth() + buttonGap;
+            }
+
+            const int width = juce::jmax (360, rowWidth - buttonGap + 2 * margin);
+
+            juce::AttributedString wrapped;
+            wrapped.append (text, message.getFont());
+            juce::TextLayout layout;
+            layout.createLayout (wrapped, static_cast<float> (width - 2 * margin - 10));
+
+            setSize (width, 2 * margin + juce::roundToInt (layout.getHeight()) + 14 + 14 + buttonHeight);
+        }
+
+        ~ChoicePrompt() override { setLookAndFeel (nullptr); }
+
+        void paint (juce::Graphics& g) override { g.fillAll (Celine::Theme::chrome()); }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced (margin);
+            auto row = area.removeFromBottom (buttonHeight);
+
+            // Right to left, so the first choice sits leftmost.
+            for (int i = buttons.size(); --i >= 0;)
+            {
+                buttons[i]->setBounds (row.removeFromRight (buttons[i]->getWidth()));
+                row.removeFromRight (buttonGap);
+            }
+
+            area.removeFromBottom (14);
+            message.setBounds (area);
+        }
+
+        std::function<void (int choice)> onChoice;
+
+       private:
+        static constexpr int margin = 18;
+        static constexpr int buttonHeight = 32;
+        static constexpr int buttonGap = 8;
+
+        juce::Label message;
+        juce::OwnedArray<juce::TextButton> buttons;
+    };
 }
 
 //==============================================================================
@@ -150,6 +232,13 @@ PluginEditor::~PluginEditor()
     Theme::palette().removeChangeListener (this);
 
     stopTimer();
+
+    // An update question still up goes with the window. It is a desktop window of its
+    // own, so nothing else would close it, and it draws with this editor's look and
+    // feel, which is about to be destroyed. The modal manager sees the deletion and
+    // does not delete it again.
+    if (openPrompt != nullptr)
+        delete openPrompt.getComponent();
     processorRef.setUiActive (false);
     setLookAndFeel (nullptr);
 }
@@ -292,6 +381,21 @@ void PluginEditor::layOutContent (juce::Rectangle<int> area)
 //==============================================================================
 void PluginEditor::timerCallback()
 {
+    // The update question and notice, only with the window on screen, one at a time.
+    if (isShowing() && openPrompt == nullptr)
+    {
+        if (! updateQuestionChecked)
+        {
+            updateQuestionChecked = true;
+            offerUpdateChecksOnFirstRun();
+            startUpdateCheckIfEnabled();
+        }
+        else if (const auto release = UpdateCheck::Session::takeUpdateToAnnounce())
+        {
+            announceUpdate (release->version);
+        }
+    }
+
     for (auto& strip : strips)
         strip->refresh();
 
@@ -577,6 +681,19 @@ void PluginEditor::showSettingsMenu()
     theme.setAction ([this] { showThemeWindow (this); });
     menu.addItem (theme);
 
+    // Whether to check for updates at launch.
+    juce::PopupMenu::Item updates ("Check for updates at launch");
+    updates.isTicked = UpdateCheck::Preferences().isEnabled();
+    updates.setAction ([this, wasOn = updates.isTicked]
+    {
+        UpdateCheck::Preferences().setEnabled (! wasOn);
+
+        // Check this launch, if not done already.
+        if (! wasOn)
+            startUpdateCheckIfEnabled();
+    });
+    menu.addItem (updates);
+
     juce::PopupMenu::Item about ("About " + juce::String (JucePlugin_Name) + ellipsis);
     about.setAction ([this] { showAboutWindow (this); });
     menu.addItem (about);
@@ -640,4 +757,111 @@ void PluginEditor::changeListenerCallback (juce::ChangeBroadcaster*)
 void PluginEditor::refreshBypassLook()
 {
     bypassButton.setActive (bypassButton.getToggleState());
+}
+
+//==============================================================================
+juce::DialogWindow* PluginEditor::launchPrompt (const juce::String& title, std::unique_ptr<juce::Component> content)
+{
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = title;
+    options.dialogBackgroundColour = Celine::Theme::chrome();
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = false;
+    options.content.setOwned (content.release());
+
+    // Async, and the window deletes itself, so close with exitModalState().
+    auto* window = options.launchAsync();
+    openPrompt = window;
+    return window;
+}
+
+void PluginEditor::offerUpdateChecksOnFirstRun()
+{
+    UpdateCheck::Preferences preferences;
+
+    if (preferences.hasBeenOffered())
+        return;
+
+    // Only with a window on screen, marked when asked (the editors the VST3 manifest helper and the tests build are never shown).
+    // Closing it leaves the checks off.
+    jassert (isShowing());
+    preferences.markOffered();
+
+    const auto name = juce::String (JucePlugin_Name);
+
+    auto prompt = std::make_unique<ChoicePrompt> (
+        lookAndFeel,
+        "Check for a newer version of " + name + " when it starts?\n\n"
+            "Once per launch, " + name + " asks GitHub for its newest release and tells "
+            "you if it is newer than the one you have. Nothing about you or your "
+            "sessions is sent.\n\n"
+            "You can change this later in the Settings menu.",
+        juce::StringArray { "Check for updates", "No thanks" });
+
+    auto* raw = prompt.get();
+    const juce::Component::SafePointer<juce::DialogWindow> dialog (launchPrompt (name + " updates", std::move (prompt)));
+    const juce::Component::SafePointer<PluginEditor> safe (this);
+
+    raw->onChoice = [safe, dialog] (int choice)
+    {
+        if (dialog != nullptr)
+            dialog->exitModalState (0);
+
+        if (choice != 0)
+            return;
+
+        UpdateCheck::Preferences().setEnabled (true);
+
+        // Check this launch too.
+        if (safe != nullptr)
+            safe->startUpdateCheckIfEnabled();
+    };
+}
+
+void PluginEditor::startUpdateCheckIfEnabled()
+{
+    // Already checked this launch, or turned off.
+    if (UpdateCheck::Session::hasStarted() || ! UpdateCheck::Preferences().isEnabled())
+        return;
+
+    UpdateCheck::Session::startIfNeeded();
+}
+
+void PluginEditor::announceUpdate (const juce::String& version)
+{
+    // Turned off in another window meanwhile.
+    if (! UpdateCheck::Preferences().isEnabled())
+        return;
+
+    const auto name = juce::String (JucePlugin_Name);
+
+    auto prompt = std::make_unique<ChoicePrompt> (
+        lookAndFeel,
+        "A new update is available.\n\n"
+            + name + " " + version + " is out. You have " + UpdateCheck::installedVersion() + ".",
+        juce::StringArray { "Download", "Remind me later", "Turn off update checks" });
+
+    auto* raw = prompt.get();
+    const juce::Component::SafePointer<juce::DialogWindow> dialog (launchPrompt (name + " update", std::move (prompt)));
+    const juce::Component::SafePointer<PluginEditor> safe (this);
+
+    raw->onChoice = [safe, dialog] (int choice)
+    {
+        if (dialog != nullptr)
+            dialog->exitModalState (0);
+
+        if (choice == 0)
+        {
+            // The releases page: the right download depends on the machine.
+            UpdateCheck::releasesPage().launchInDefaultBrowser();
+        }
+        else if (choice == 2)
+        {
+            // Turn them back on from the Settings menu.
+            UpdateCheck::Preferences().setEnabled (false);
+        }
+
+        // "Remind me later" does nothing: the next launch asks again.
+    };
 }

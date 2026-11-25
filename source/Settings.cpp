@@ -55,4 +55,14 @@ namespace Celine
     {
         location() = file;
     }
+
+    juce::File Settings::file()
+    {
+        return location();
+    }
+
+    juce::PropertiesFile::Options Settings::options()
+    {
+        return settingsOptions();
+    }
 } // namespace Celine

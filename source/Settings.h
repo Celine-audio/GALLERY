@@ -27,5 +27,10 @@ namespace Celine
             to the real one would overwrite whatever the person running the tests had
             chosen for themselves. */
         void useFile (const juce::File&);
+
+        /** The file in use, and how it is opened. For the other per-machine answers kept
+            in it -- UpdateCheck's preferences -- so they follow the test redirect too. */
+        juce::File file();
+        juce::PropertiesFile::Options options();
     } // namespace Settings
 } // namespace Celine

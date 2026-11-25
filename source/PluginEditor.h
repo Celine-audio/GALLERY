@@ -62,6 +62,27 @@ private:
 
     void showSettingsMenu();
 
+    //==============================================================================
+    // Update checks (see UpdateCheck.h).
+
+    /** Asks once per machine whether to check for updates. Closing the question means no. */
+    void offerUpdateChecksOnFirstRun();
+
+    /** Starts this launch's check if enabled. */
+    void startUpdateCheckIfEnabled();
+
+    /** "A new update is available": Download, Remind me later, or turn checks off. */
+    void announceUpdate (const juce::String& version);
+
+    /** Shows a themed question in its own window. One at a time. */
+    juce::DialogWindow* launchPrompt (const juce::String& title, std::unique_ptr<juce::Component> content);
+
+    /** Whether this window has asked the update question yet. */
+    bool updateQuestionChecked = false;
+
+    /** The prompt this window has up, if any. Null once answered. */
+    juce::Component::SafePointer<juce::DialogWindow> openPrompt;
+
     /** The handful of colours this window takes once rather than reading as it draws. */
     void applyColours();
 
